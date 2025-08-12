@@ -28,11 +28,18 @@ private:
   void RenderCategoryPage(const std::string& category);
   void RenderServicePage(const std::string& serviceName, std::atomic<bool>& running);
 
+  // New grid layout methods
+  void RenderCategoryGrid();
+  void RenderSystemStatus();
+  void RenderFontDebugInfo();
+
+  // Input handling
+  void HandleKeyboardShortcuts();
+
   // Helpers
   std::string GetCategoryDisplayName(const std::string& category);
   std::string GetCategoryIcon(const std::string& category);
   void NavigateToCategory(const std::string& category);
   void NavigateToService(const std::string& serviceName);
   void NavigateBack();
-  void HandleKeyboardInput();
 };

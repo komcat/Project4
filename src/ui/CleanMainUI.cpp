@@ -1,12 +1,12 @@
-﻿// src/ui/CleanMainUI.cpp - FIXED VERSION
+﻿// src/ui/CleanMainUI.cpp
 #include "CleanMainUI.h"
 #include "imgui.h"
 #include <iostream>
 #include <ctime>
 
 void CleanMainUI::RenderUI(std::atomic<bool>& running) {
-  // Handle escape key for navigation
-  HandleKeyboardInput();
+  // Handle keyboard shortcuts first
+  HandleKeyboardShortcuts();
 
   // Full screen window
   ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -39,29 +39,10 @@ void CleanMainUI::RenderUI(std::atomic<bool>& running) {
 void CleanMainUI::RenderTopMenuBar() {
   ImGui::Dummy(ImVec2(0.0f, 12.0f));
 
-  auto& registry = UIServiceRegistry::Instance();
-  auto categories = registry.GetAllCategories();
-
-  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(20, 10));
-  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.3f, 0.8f, 1.0f));
-  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.4f, 0.9f, 1.0f));
-
-  // Dynamically create buttons for each category
-  for (const auto& category : categories) {
-    std::string displayName = GetCategoryDisplayName(category);
-    std::string icon = GetCategoryIcon(category);
-
-    // FIXED: Use proper UTF-8 string concatenation for emojis
-    std::string buttonText = icon + " " + displayName;
-
-    if (ImGui::Button(buttonText.c_str(), ImVec2(150, 40))) {
-      NavigateToCategory(category);
-    }
-    ImGui::SameLine();
-  }
-
-  ImGui::PopStyleColor(2);
-  ImGui::PopStyleVar();
+  // Simple "Home" indicator with quick navigation hint
+  ImGui::Text("Home  (Press 1-6 for quick navigation)");
+  ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "1=Config  2=Vision  3=Data  4=Program  5=Manual  6=Run");
+  ImGui::Spacing();
 }
 
 void CleanMainUI::RenderBackButton() {
@@ -77,6 +58,10 @@ void CleanMainUI::RenderBackButton() {
 
   ImGui::PopStyleColor(2);
   ImGui::PopStyleVar();
+
+  // Add escape key hint
+  ImGui::SameLine();
+  ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "(or press Escape)");
 }
 
 void CleanMainUI::RenderDateTime() {
@@ -114,17 +99,6 @@ void CleanMainUI::RenderBreadcrumbs() {
   }
 
   ImGui::Text("%s", breadcrumb.c_str());
-
-  // Add keyboard hints
-  if (currentCategory != "Home" || !currentService.empty()) {
-    ImGui::SameLine();
-    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), " (Press ESC to go back)");
-  }
-
-  if (currentCategory == "Home" && currentService.empty()) {
-    ImGui::SameLine();
-    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), " (Press 1-6 for quick navigation)");
-  }
 }
 
 void CleanMainUI::RenderMainContent(std::atomic<bool>& running) {
@@ -142,27 +116,146 @@ void CleanMainUI::RenderMainContent(std::atomic<bool>& running) {
 }
 
 void CleanMainUI::RenderHomePage() {
+  // Welcome header
   ImGui::SetWindowFontScale(2.0f);
   ImGui::Text("Welcome to Project4 UI");
   ImGui::SetWindowFontScale(1.0f);
 
   ImGui::Spacing();
-  ImGui::Text("Select a category from the top menu to begin:");
+  ImGui::Text("Select a category from the grid below to begin:");
 
-  // Emoji test
+  // Comprehensive emoji test section
   ImGui::Spacing();
-  ImGui::Text("Emoji Test:");
-  ImGui::TextUnformatted(reinterpret_cast<const char*>(u8"🎯 🤖 🦾 ⚡ 📷 👁️ 📊 🔧"));
+  ImGui::Text("Emoji Test (UTF-8 encoded):");
 
-  // Test if individual emojis work
+  // Use proper UTF-8 encoding for emoji strings with reinterpret_cast
+  ImGui::TextUnformatted(reinterpret_cast<const char*>(u8"🔧 ⚙️ 📊 🕹️ 👁️ 🚀"));
+  ImGui::TextUnformatted(reinterpret_cast<const char*>(u8"Target: 🎯, Robot: 🤖, Lightning: ⚡, Camera: 📷"));
+
+  // Test individual emoji
   ImGui::Text("Individual tests:");
   ImGui::SameLine(); ImGui::TextUnformatted(reinterpret_cast<const char*>(u8"🎯"));
   ImGui::SameLine(); ImGui::TextUnformatted(reinterpret_cast<const char*>(u8"🤖"));
   ImGui::SameLine(); ImGui::TextUnformatted(reinterpret_cast<const char*>(u8"⚡"));
+  ImGui::SameLine(); ImGui::TextUnformatted(reinterpret_cast<const char*>(u8"📷"));
+  ImGui::SameLine(); ImGui::TextUnformatted(reinterpret_cast<const char*>(u8"👁️"));
+  ImGui::SameLine(); ImGui::TextUnformatted(reinterpret_cast<const char*>(u8"🚀"));
+
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::Spacing();
+
+  // MAIN GRID LAYOUT - 3x2 grid of large buttons
+  RenderCategoryGrid();
+
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::Spacing();
+
+  // System Status section
+  RenderSystemStatus();
+
+  // Font debug info
+  RenderFontDebugInfo();
+}
+
+void CleanMainUI::RenderCategoryGrid() {
+  auto& registry = UIServiceRegistry::Instance();
+  auto categories = registry.GetAllCategories();
+
+  // Calculate grid layout
+  float windowWidth = ImGui::GetContentRegionAvail().x;
+  float buttonWidth = (windowWidth - 40.0f) / 3.0f; // 3 columns with spacing
+  float buttonHeight = 120.0f; // Large buttons
+
+  // Push style for rounded corners and spacing
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f); // Rounded corners
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(20, 20));
+
+  // Define category order with GREY color scheme
+  struct CategoryInfo {
+    std::string name;
+    ImVec4 color;
+    ImVec4 hoverColor;
+  };
+
+  std::vector<CategoryInfo> categoryLayout = {
+    // Light grey to dark grey gradient scheme
+    {"Config", ImVec4(0.45f, 0.45f, 0.45f, 1.0f), ImVec4(0.55f, 0.55f, 0.55f, 1.0f)},
+    {"Vision", ImVec4(0.50f, 0.50f, 0.50f, 1.0f), ImVec4(0.60f, 0.60f, 0.60f, 1.0f)},
+    {"Data", ImVec4(0.55f, 0.55f, 0.55f, 1.0f), ImVec4(0.65f, 0.65f, 0.65f, 1.0f)},
+    {"Program", ImVec4(0.40f, 0.40f, 0.40f, 1.0f), ImVec4(0.50f, 0.50f, 0.50f, 1.0f)},
+    {"Manual", ImVec4(0.48f, 0.48f, 0.48f, 1.0f), ImVec4(0.58f, 0.58f, 0.58f, 1.0f)},
+    {"Run", ImVec4(0.52f, 0.52f, 0.52f, 1.0f), ImVec4(0.62f, 0.62f, 0.62f, 1.0f)}
+  };
+
+  // Render top row (3 buttons)
+  for (int i = 0; i < 3 && i < categoryLayout.size(); i++) {
+    if (i > 0) ImGui::SameLine();
+
+    const auto& catInfo = categoryLayout[i];
+
+    // Find if this category exists in registry
+    bool categoryExists = std::find(categories.begin(), categories.end(), catInfo.name) != categories.end();
+
+    ImGui::PushStyleColor(ImGuiCol_Button, catInfo.color);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, catInfo.hoverColor);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(catInfo.hoverColor.x * 0.8f, catInfo.hoverColor.y * 0.8f, catInfo.hoverColor.z * 0.8f, 1.0f));
+
+    // Use UTF-8 encoded emoji in button text
+    std::string buttonText = GetCategoryIcon(catInfo.name) + "\n" + GetCategoryDisplayName(catInfo.name);
+
+    if (ImGui::Button(buttonText.c_str(), ImVec2(buttonWidth, buttonHeight))) {
+      if (categoryExists) {
+        NavigateToCategory(catInfo.name);
+      }
+    }
+
+    ImGui::PopStyleColor(3);
+  }
+
+  // Add spacing between rows
+  ImGui::Dummy(ImVec2(0, 20));
+
+  // Render bottom row (3 buttons)
+  for (int i = 3; i < 6 && i < categoryLayout.size(); i++) {
+    if (i > 3) ImGui::SameLine();
+
+    const auto& catInfo = categoryLayout[i];
+
+    // Find if this category exists in registry
+    bool categoryExists = std::find(categories.begin(), categories.end(), catInfo.name) != categories.end();
+
+    ImGui::PushStyleColor(ImGuiCol_Button, catInfo.color);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, catInfo.hoverColor);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(catInfo.hoverColor.x * 0.8f, catInfo.hoverColor.y * 0.8f, catInfo.hoverColor.z * 0.8f, 1.0f));
+
+    // Use UTF-8 encoded emoji in button text
+    std::string buttonText = GetCategoryIcon(catInfo.name) + "\n" + GetCategoryDisplayName(catInfo.name);
+
+    if (ImGui::Button(buttonText.c_str(), ImVec2(buttonWidth, buttonHeight))) {
+      if (categoryExists) {
+        NavigateToCategory(catInfo.name);
+      }
+    }
+
+    ImGui::PopStyleColor(3);
+  }
+
+  ImGui::PopStyleVar(2); // Pop rounding and padding
+}
+
+void CleanMainUI::RenderSystemStatus() {
+  ImGui::SetWindowFontScale(1.3f);
+  ImGui::Text("System Status");
+  ImGui::SetWindowFontScale(1.0f);
+
+  ImGui::Spacing();
 
   auto& registry = UIServiceRegistry::Instance();
   auto categories = registry.GetAllCategories();
 
+  // Service summary
   for (const auto& category : categories) {
     auto services = registry.GetServicesByCategory(category);
     int availableCount = 0;
@@ -176,14 +269,6 @@ void CleanMainUI::RenderHomePage() {
       availableCount,
       (int)services.size());
   }
-
-  ImGui::Spacing();
-  ImGui::Separator();
-  ImGui::Spacing();
-
-  ImGui::SetWindowFontScale(1.3f);
-  ImGui::Text("System Status");
-  ImGui::SetWindowFontScale(1.0f);
 
   ImGui::Spacing();
   ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "✓ UI Service Registry: Ready");
@@ -200,12 +285,14 @@ void CleanMainUI::RenderHomePage() {
   }
 
   ImGui::Text("✓ Services: %d available of %d registered", availableServices, totalServices);
+}
 
-  // Font system debug info
+void CleanMainUI::RenderFontDebugInfo() {
   ImGui::Spacing();
   ImGui::Text("Font System Debug:");
   ImGui::BulletText("Font Atlas Built: %s", ImGui::GetIO().Fonts->IsBuilt() ? "Yes" : "No");
   ImGui::BulletText("Font Count: %d", ImGui::GetIO().Fonts->Fonts.Size);
+
   if (ImGui::GetIO().FontDefault) {
     ImGui::BulletText("Default Font Glyphs: %d", ImGui::GetIO().FontDefault->Glyphs.Size);
 
@@ -240,14 +327,14 @@ void CleanMainUI::RenderCategoryPage(const std::string& category) {
 
     std::string buttonText = service.icon + " " + service.displayName;
 
-    // Color code based on availability
+    // Color code based on availability - using grey tones
     if (service.available) {
-      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
-      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.7f, 0.3f, 1.0f));
-    }
-    else {
       ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.4f, 0.4f, 0.4f, 1.0f));
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+    }
+    else {
+      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
     }
 
     if (ImGui::Button(buttonText.c_str(), ImVec2(250, 50))) {
@@ -288,18 +375,19 @@ void CleanMainUI::RenderServicePage(const std::string& serviceName, std::atomic<
   }
 }
 
-// FIXED: Updated helper methods with proper UTF-8 emoji strings
+// Helper methods
 std::string CleanMainUI::GetCategoryDisplayName(const std::string& category) {
   if (category == "Manual") return "Manual Control";
   if (category == "Data") return "Data & Instrument";
   if (category == "Program") return "Programming";
   if (category == "Config") return "Configuration";
   if (category == "Vision") return "Vision System";
+  if (category == "Run") return "Run";
   return category;
 }
 
 std::string CleanMainUI::GetCategoryIcon(const std::string& category) {
-  // FIXED: Use proper UTF-8 literals for emojis
+  // Use UTF-8 encoded emoji strings with reinterpret_cast
   if (category == "Manual") return reinterpret_cast<const char*>(u8"🕹️");
   if (category == "Data") return reinterpret_cast<const char*>(u8"📊");
   if (category == "Program") return reinterpret_cast<const char*>(u8"⚙️");
@@ -327,37 +415,33 @@ void CleanMainUI::NavigateBack() {
   }
 }
 
-// NEW: Handle keyboard input for navigation
-void CleanMainUI::HandleKeyboardInput() {
-  // Check if escape key was pressed
+void CleanMainUI::HandleKeyboardShortcuts() {
+  // Handle Escape key from any page for universal back navigation
   if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-    // Only navigate back if we're not already at home
-    if (currentCategory != "Home" || !currentService.empty()) {
-      NavigateBack();
-    }
+    NavigateBack();
+    return; // Exit early after handling escape
   }
 
-  // Optional: Add more keyboard shortcuts
-  if (ImGui::IsKeyPressed(ImGuiKey_F1)) {
-    // F1 = Go to home
-    currentCategory = "Home";
-    currentService = "";
+  // Only handle number shortcuts when we're on the home page
+  if (currentCategory != "Home") return;
+
+  // Check for number key presses (1-6) using modern ImGui key handling
+  if (ImGui::IsKeyPressed(ImGuiKey_1)) {
+    NavigateToCategory("Config");
   }
-
-  // Optional: Number keys for quick category navigation (when at home)
-  if (currentCategory == "Home" && currentService.empty()) {
-    auto& registry = UIServiceRegistry::Instance();
-    auto categories = registry.GetAllCategories();
-
-    // Sort categories for consistent numbering
-    std::sort(categories.begin(), categories.end());
-
-    for (size_t i = 0; i < categories.size() && i < 9; i++) {
-      ImGuiKey key = (ImGuiKey)(ImGuiKey_1 + i);
-      if (ImGui::IsKeyPressed(key)) {
-        NavigateToCategory(categories[i]);
-        break;
-      }
-    }
+  else if (ImGui::IsKeyPressed(ImGuiKey_2)) {
+    NavigateToCategory("Vision");
+  }
+  else if (ImGui::IsKeyPressed(ImGuiKey_3)) {
+    NavigateToCategory("Data");
+  }
+  else if (ImGui::IsKeyPressed(ImGuiKey_4)) {
+    NavigateToCategory("Program");
+  }
+  else if (ImGui::IsKeyPressed(ImGuiKey_5)) {
+    NavigateToCategory("Manual");
+  }
+  else if (ImGui::IsKeyPressed(ImGuiKey_6)) {
+    NavigateToCategory("Run");
   }
 }
