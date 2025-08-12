@@ -150,7 +150,7 @@ target_link_libraries(Project4
 # Link FreeType only if enabled
 if(FREETYPE_ENABLED)
     target_link_libraries(Project4 ${FREETYPE_LIBRARIES})
-    target_compile_definitions(Project4 PRIVATE IMGUI_ENABLE_FREETYPE)
+    #target_compile_definitions(Project4 PRIVATE IMGUI_ENABLE_FREETYPE)
 endif()
 
 # Windows specific settings
@@ -173,7 +173,7 @@ endif()
 
 # Compiler-specific options
 if(MSVC)
-    target_compile_options(Project4 PRIVATE /W4)
+    target_compile_options(Project4 PRIVATE /W3)
     target_compile_definitions(Project4 PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(Project4 PRIVATE -Wall -Wextra -Wpedantic)
