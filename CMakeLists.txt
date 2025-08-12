@@ -101,32 +101,105 @@ else()
     set(FREETYPE_ENABLED FALSE)
 endif()
 
-# Define your project source files explicitly
+# Define your project source files based on current structure
 set(PROJECT_SOURCES
+    # Main entry point
     "src/main.cpp"
+    
+    # Core application files
+    "src/core/Application.cpp"
+    "src/core/Window.cpp"
+    
+    # UI system files
+    "src/ui/FontManager.cpp"
+    "src/ui/UIRenderer.cpp"
+    
+    # Utility files  
+    "src/utils/Logger.cpp"
+    "src/utils/Unicode.cpp"
+
+     
 )
 
-# Define your project header files explicitly
+# Define your project header files based on current structure
 set(PROJECT_HEADERS
+    # Core headers (in src/ directory based on your structure)
+    "src/core/Application.h"
+    "src/core/Window.h"
+    
+    # UI headers (in src/ directory)
+    "src/ui/FontManager.h" 
+    "src/ui/UIRenderer.h"
+    
+    # Utility headers (in src/ directory)
+    "src/utils/Logger.h"
+    "src/utils/Unicode.h"
+    
+    # Legacy header (if still needed)
     "include/ui/DualWindowManager.h"
+
+    "src/ui/services/UIServiceRegistry.h"
+
+    "src/ui/CleanMainUI.h"
+    "src/ui/services/DemoUIServices.h"
 )
+
+# Check which files actually exist and warn about missing ones
+foreach(source_file ${PROJECT_SOURCES})
+    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/${source_file}")
+        message(WARNING "Source file not found: ${source_file}")
+    endif()
+endforeach()
+
+foreach(header_file ${PROJECT_HEADERS})
+    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/${header_file}")
+        message(WARNING "Header file not found: ${header_file}")
+    endif()
+endforeach()
 
 # Add source to this project's executable
 add_executable(Project4 
     ${PROJECT_SOURCES}
     ${IMGUI_SOURCES}
-    # Note: Headers are included for IDE organization but not required for compilation
-)
+    # Headers are included for IDE organization
+   )
 
 # Create source groups for better IDE organization
 source_group("Source Files" FILES ${PROJECT_SOURCES})
 source_group("Header Files" FILES ${PROJECT_HEADERS})
 source_group("External\\ImGui" FILES ${IMGUI_SOURCES})
 
-# Include directories
+# Create detailed source groups for new structure
+source_group("Source Files\\Core" FILES 
+    "src/core/Application.cpp" 
+    "src/core/Window.cpp"
+)
+source_group("Source Files\\UI" FILES 
+    "src/ui/FontManager.cpp" 
+    "src/ui/UIRenderer.cpp"
+)
+source_group("Source Files\\Utils" FILES 
+    "src/utils/Logger.cpp" 
+    "src/utils/Unicode.cpp"
+)
+source_group("Header Files\\Core" FILES 
+    "src/core/Application.h" 
+    "src/core/Window.h"
+)
+source_group("Header Files\\UI" FILES 
+    "src/ui/FontManager.h" 
+    "src/ui/UIRenderer.h"
+)
+source_group("Header Files\\Utils" FILES 
+    "src/utils/Logger.h" 
+    "src/utils/Unicode.h"
+)
+
+# Include directories - adjusted for your structure
 target_include_directories(Project4 PRIVATE
-    "${CMAKE_SOURCE_DIR}/include"  # This allows #include "ui/DualWindowManager.h"
-    "${CMAKE_SOURCE_DIR}/include/ui"  # This allows #include "DualWindowManager.h"
+    "${CMAKE_SOURCE_DIR}/src"          # This allows #include "core/Application.h" from src/
+    "${CMAKE_SOURCE_DIR}/include"      # This allows #include "ui/DualWindowManager.h" (legacy)
+    "${CMAKE_SOURCE_DIR}/include/ui"   # This allows #include "DualWindowManager.h" (legacy)
     ${SDL2_INCLUDE_DIRS}
     ${OPENGL_INCLUDE_DIRS}
     ${IMGUI_DIR}
@@ -150,7 +223,7 @@ target_link_libraries(Project4
 # Link FreeType only if enabled
 if(FREETYPE_ENABLED)
     target_link_libraries(Project4 ${FREETYPE_LIBRARIES})
-    #target_compile_definitions(Project4 PRIVATE IMGUI_ENABLE_FREETYPE)
+    target_compile_definitions(Project4 PRIVATE IMGUI_ENABLE_FREETYPE)
 endif()
 
 # Windows specific settings
@@ -195,4 +268,5 @@ message(STATUS "FREETYPE_INCLUDE_DIRS: ${FREETYPE_INCLUDE_DIRS}")
 message(STATUS "FREETYPE_LIBRARIES: ${FREETYPE_LIBRARIES}")
 message(STATUS "FREETYPE_ENABLED: ${FREETYPE_ENABLED}")
 message(STATUS "ImGui Sources Count: ${IMGUI_SOURCES}")
+message(STATUS "New Project Structure: Enabled")
 message(STATUS "=====================================")
