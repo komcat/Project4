@@ -91,13 +91,18 @@ FontManager::FontLoadResult FontManager::LoadBaseFont(ImGuiIO& io) {
   return result;
 }
 
+
 void FontManager::LoadEmojiFont(ImGuiIO& io) {
   auto emojiFontCandidates = GetEmojiFontCandidates();
   const ImWchar* comprehensive_emoji_ranges = GetComprehensiveEmojiRanges();
 
+  Logger::Info(L"🎨 Starting emoji font loading...");
+
   for (const std::string& emojiPath : emojiFontCandidates) {
+    Logger::Info(L"🔍 Checking: " + UnicodeUtils::StringToWString(emojiPath));
+
     if (std::filesystem::exists(emojiPath)) {
-      Logger::Info(L"😀 Attempting emoji font: " + UnicodeUtils::StringToWString(emojiPath));
+      Logger::Success(L"📁 File found, attempting to load...");
 
       ImFontConfig emojiConfig;
       emojiConfig.MergeMode = true;  // CRITICAL: Merge with base font
@@ -107,7 +112,9 @@ void FontManager::LoadEmojiFont(ImGuiIO& io) {
 #ifdef IMGUI_ENABLE_FREETYPE
       // Enable color emoji rendering
       emojiConfig.FontBuilderFlags |= ImGuiFreeTypeBuilderFlags_LoadColor;
-      Logger::Success(L"FreeType color emoji enabled for: " + UnicodeUtils::StringToWString(emojiPath));
+      Logger::Success(L"🎨 FreeType color emoji flags enabled");
+#else
+      Logger::Warning(L"⚠️ IMGUI_ENABLE_FREETYPE not defined - no color emoji support");
 #endif
 
       try {
@@ -120,20 +127,33 @@ void FontManager::LoadEmojiFont(ImGuiIO& io) {
 
         if (emojiFont) {
           emojiSupported = true;
-          Logger::Success(L"Emoji font loaded successfully: " + UnicodeUtils::StringToWString(emojiPath));
+          Logger::Success(L"✅ Emoji font loaded successfully: " + UnicodeUtils::StringToWString(emojiPath));
+          Logger::Info(L"   Font size: 16.0f");
+          Logger::Info(L"   Merge mode: enabled");
+          Logger::Info(L"   Color flags: " + std::to_wstring(emojiConfig.FontBuilderFlags));
           break;
         }
+        else {
+          Logger::Error(L"❌ AddFontFromFileTTF returned null for: " + UnicodeUtils::StringToWString(emojiPath));
+        }
+      }
+      catch (const std::exception& e) {
+        Logger::Error(L"❌ Exception loading emoji font: " + UnicodeUtils::StringToWString(e.what()));
       }
       catch (...) {
-        Logger::Error(L"Exception loading emoji font: " + UnicodeUtils::StringToWString(emojiPath));
+        Logger::Error(L"❌ Unknown exception loading emoji font: " + UnicodeUtils::StringToWString(emojiPath));
       }
+    }
+    else {
+      Logger::Warning(L"📁 File not found: " + UnicodeUtils::StringToWString(emojiPath));
     }
   }
 
   if (!emojiSupported) {
-    Logger::Warning(L"No emoji font loaded - emojis will show as squares or question marks");
+    Logger::Warning(L"⚠️ No emoji font loaded - emojis will show as simple glyphs");
   }
 }
+
 
 FontManager::FontLoadResult FontManager::BuildFontAtlas(ImGuiIO& io) {
   FontLoadResult result;
@@ -210,12 +230,22 @@ std::vector<std::string> FontManager::GetBaseFontCandidates() const {
 }
 
 std::vector<std::string> FontManager::GetEmojiFontCandidates() const {
-  return {
-      "assets/fonts/NotoColorEmoji.ttf",       // Best: True color emoji
-      "assets/fonts/AppleColorEmoji.ttc",      // Apple emoji (if available)
-      "C:/Windows/Fonts/seguiemj.ttf",         // Windows emoji font
-      "C:/Windows/Fonts/segoeui.ttf"           // Fallback with some emoji
+  std::vector<std::string> candidates = {
+      //"assets/fonts/NotoColorEmoji.ttf",       // Your font is here
+      //"assets/fonts/AppleColorEmoji.ttc",
+      "C:/Windows/Fonts/seguiemj.ttf",
+      "C:/Windows/Fonts/segoeui.ttf"
   };
+
+  // ADD DEBUG OUTPUT
+  Logger::Info(L"🔍 Checking emoji font candidates:");
+  for (const auto& path : candidates) {
+    bool exists = std::filesystem::exists(path);
+    Logger::Info(L"   " + UnicodeUtils::StringToWString(path) + L": " +
+      (exists ? L"✅ EXISTS" : L"❌ NOT FOUND"));
+  }
+
+  return candidates;
 }
 
 const ImWchar* FontManager::GetComprehensiveBaseRanges() {

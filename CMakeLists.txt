@@ -162,7 +162,7 @@ add_executable(Project4
     ${PROJECT_SOURCES}
     ${IMGUI_SOURCES}
     # Headers are included for IDE organization
-   )
+    "src/core/ServiceLocator.h" "src/ui/services/UIServiceRegistry.h" "src/ui/CleanMainUI.h" "src/ui/CleanMainUI.cpp"  "src/ui/services/run/RunProductService.h" "src/ui/services/run/ProcessSetupService.h" "src/ui/services/ServiceInitializer.h" "src/ui/services/manual/PIControlService.h" "src/ui/services/vision/VisionService.h" "src/ui/services/data/DataMonitorService.h" "src/ui/services/manual/GantryService.h" "src/ui/services/manual/IOControlService.h" "src/ui/services/manual/PneumaticService.h" "src/ui/services/data/SMUService.h" "src/ui/services/data/CLD101xService.h" "src/ui/services/vision/FiducialService.h" "src/ui/services/vision/DatumService.h" "src/ui/services/config/ConfigService.h" "src/ui/services/config/SystemInfoService.h" "src/ui/services/program/ProgrammingService.h" "src/ui/services/program/MacroService.h")
 
 # Create source groups for better IDE organization
 source_group("Source Files" FILES ${PROJECT_SOURCES})

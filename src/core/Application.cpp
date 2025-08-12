@@ -65,6 +65,7 @@ void Application::SetupOpenGLAttributes() {
   SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 }
 
+
 bool Application::InitializeImGui() {
   // Setup ImGui for Window 1
   window1->MakeContextCurrent();
@@ -75,13 +76,16 @@ bool Application::InitializeImGui() {
 
   ImGuiIO& io1 = ImGui::GetIO();
   io1.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-  ImGui::StyleColorsDark();
+  ImGui::StyleColorsClassic();
 
-  // Font setup for Window 1
+  // CRITICAL: Actually call the font manager setup!
   auto fontResult1 = fontManager.SetupComprehensiveFonts(io1);
   if (!fontResult1.success) {
     Logger::Warning(L"Window 1 font setup had issues: " +
       UnicodeUtils::StringToWString(fontResult1.errorMessage));
+  }
+  else {
+    Logger::Success(L"Window 1 fonts loaded successfully with emoji support!");
   }
 
   if (!ImGui_ImplSDL2_InitForOpenGL(window1->GetSDLWindow(), window1->GetGLContext())) {
@@ -104,11 +108,14 @@ bool Application::InitializeImGui() {
   io2.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
   ImGui::StyleColorsDark();
 
-  // Font setup for Window 2
+  // CRITICAL: Setup fonts for window 2 as well!
   auto fontResult2 = fontManager.SetupComprehensiveFonts(io2);
   if (!fontResult2.success) {
     Logger::Warning(L"Window 2 font setup had issues: " +
       UnicodeUtils::StringToWString(fontResult2.errorMessage));
+  }
+  else {
+    Logger::Success(L"Window 2 fonts loaded successfully with emoji support!");
   }
 
   if (!ImGui_ImplSDL2_InitForOpenGL(window2->GetSDLWindow(), window2->GetGLContext())) {
@@ -128,6 +135,7 @@ bool Application::InitializeImGui() {
   Logger::Success(L"ImGui initialized with comprehensive font support for both windows");
   return true;
 }
+
 
 void Application::Run() {
   Logger::Info(L"🚀 Starting dual window comprehensive emoji test...");
