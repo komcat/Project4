@@ -60,9 +60,38 @@ endfunction()
 
 # Define external libraries paths
 set(EXTERNAL_DIR "${CMAKE_SOURCE_DIR}/external")
+set(SRC_DIR "${CMAKE_SOURCE_DIR}/src")
 set(SDL2_DIR "${EXTERNAL_DIR}/sdl2")
 set(FREETYPE_DIR "${EXTERNAL_DIR}/freetype")
 set(NLOHMANN_JSON_DIR "${EXTERNAL_DIR}/nlohmann_json")
+set(PI_DIR "${EXTERNAL_DIR}/PI")
+set(SRCUTILS_DIR "${CMAKE_SOURCE_DIR}/src/utils")
+
+# ========================================
+# PI GCS2 DLL SETUP - THIS WAS MISSING!
+# ========================================
+set(PI_GCS2_INCLUDE_DIR "${PI_DIR}")
+
+if(WIN32)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        # x64 build
+        set(PI_GCS2_LIBRARIES "${PI_DIR}/PI_GCS2_DLL_x64.lib")
+        set(PI_GCS2_DLLS "${PI_DIR}/PI_GCS2_DLL_x64.dll")
+    else()
+        # x86 build  
+        set(PI_GCS2_LIBRARIES "${PI_DIR}/PI_GCS2_DLL.lib")
+        set(PI_GCS2_DLLS "${PI_DIR}/PI_GCS2_DLL.dll")
+    endif()
+    
+    # Check if the library file exists
+    if(NOT EXISTS "${PI_GCS2_LIBRARIES}")
+        message(FATAL_ERROR "PI GCS2 library not found at: ${PI_GCS2_LIBRARIES}")
+    endif()
+    
+    message(STATUS "PI GCS2 library found: ${PI_GCS2_LIBRARIES}")
+else()
+    message(WARNING "PI GCS2 DLL setup is only configured for Windows")
+endif()
 
 # Setup nlohmann/json
 set(NLOHMANN_JSON_INCLUDE_DIR "")
@@ -241,7 +270,8 @@ if(MAIN_APP_SOURCES)
         ${OPENGL_INCLUDE_DIRS}
         ${IMGUI_DIR}
         ${IMGUI_DIR}/backends
-        ${NLOHMANN_JSON_INCLUDE_DIR}  # Add nlohmann/json for main app too
+        ${NLOHMANN_JSON_INCLUDE_DIR}
+        ${PI_GCS2_INCLUDE_DIR}  # ADD PI GCS2 INCLUDE
     )
     
     if(FREETYPE_ENABLED)
@@ -251,10 +281,11 @@ if(MAIN_APP_SOURCES)
         )
     endif()
     
-    # Link libraries
+    # Link libraries - ADD PI GCS2 LIBRARY HERE!
     target_link_libraries(Project4 
         ${SDL2_LIBRARIES}
         ${OPENGL_LIBRARIES}
+        ${PI_GCS2_LIBRARIES}  # THIS WAS MISSING!
     )
     
     if(FREETYPE_ENABLED)
@@ -276,17 +307,22 @@ if(TEST_MAIN_SOURCES)
     add_executable(TestMain 
         ${TEST_MAIN_SOURCES}
         ${TESTMAIN_SHARED_SOURCES}
+        "external/PI/PI_GCS2_DLL.h"
     )
     
     # Include directories (minimal for test)
     target_include_directories(TestMain PRIVATE
         "${CMAKE_SOURCE_DIR}/src"
         "${CMAKE_SOURCE_DIR}/include"
-        ${NLOHMANN_JSON_INCLUDE_DIR}  # Add nlohmann/json for TestMain too
+        ${NLOHMANN_JSON_INCLUDE_DIR}
+        ${PI_GCS2_INCLUDE_DIR}  # ADD PI GCS2 INCLUDE FOR TEST
+        ${SRCUTILS_DIR}
     )
     
-    # Link any required libraries for TestMain
-    # Add libraries as needed for your device tests
+    # Link PI GCS2 library for TestMain too
+    target_link_libraries(TestMain 
+        ${PI_GCS2_LIBRARIES}  # ADD THIS LINE!
+    )
     
 else()
     message(STATUS "TestMain.cpp not found - skipping original test executable")
@@ -308,11 +344,13 @@ if(TEST_CONFIG_SOURCES)
     target_include_directories(TestConfigManager PRIVATE
         "${CMAKE_SOURCE_DIR}/src"
         "${CMAKE_SOURCE_DIR}/include"
-        ${NLOHMANN_JSON_INCLUDE_DIR}  # Add nlohmann/json include path
+        ${NLOHMANN_JSON_INCLUDE_DIR}
+        ${PI_GCS2_INCLUDE_DIR}  # ADD PI GCS2 INCLUDE FOR CONFIG TEST TOO
     )
     
-    # ConfigManager test doesn't need to link anything for nlohmann/json (header-only)
-    message(STATUS "TestConfigManager will use nlohmann/json from: ${NLOHMANN_JSON_INCLUDE_DIR}")
+    # Link PI GCS2 library for TestConfigManager if it uses PI functions
+    # (Only add this if TestConfigManager actually uses PI functions)
+    # target_link_libraries(TestConfigManager ${PI_GCS2_LIBRARIES})
     
     # Create a custom target to run the config test
     add_custom_target(run_config_test
@@ -324,6 +362,30 @@ if(TEST_CONFIG_SOURCES)
     
 else()
     message(STATUS "TestConfigMain.cpp not found - skipping ConfigManager test executable")
+endif()
+
+# ========================================
+# COPY DLL FILES TO OUTPUT DIRECTORY
+# ========================================
+
+# Copy PI GCS2 DLL to output directory for main app
+if(WIN32 AND TARGET Project4 AND PI_GCS2_DLLS AND EXISTS ${PI_GCS2_DLLS})
+    add_custom_command(TARGET Project4 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${PI_GCS2_DLLS}
+        $<TARGET_FILE_DIR:Project4>
+        COMMENT "Copying PI GCS2 DLL to output directory"
+    )
+endif()
+
+# Copy PI GCS2 DLL for TestMain too
+if(WIN32 AND TARGET TestMain AND PI_GCS2_DLLS AND EXISTS ${PI_GCS2_DLLS})
+    add_custom_command(TARGET TestMain POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${PI_GCS2_DLLS}
+        $<TARGET_FILE_DIR:TestMain>
+        COMMENT "Copying PI GCS2 DLL to TestMain output directory"
+    )
 endif()
 
 # ========================================
@@ -430,6 +492,8 @@ else()
     message(STATUS "ConfigManager Test Application: NO")
 endif()
 message(STATUS "SDL2 Libraries: ${SDL2_LIBRARIES}")
+message(STATUS "PI GCS2 Libraries: ${PI_GCS2_LIBRARIES}")  # ADD THIS LINE
+message(STATUS "PI GCS2 DLLs: ${PI_GCS2_DLLS}")          # ADD THIS LINE
 message(STATUS "FreeType Enabled: ${FREETYPE_ENABLED}")
 list(LENGTH IMGUI_SOURCES imgui_count)
 message(STATUS "ImGui Sources: ${imgui_count} files")
