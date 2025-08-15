@@ -205,8 +205,10 @@ endforeach()
 # Define shared sources for original TestMain
 set(TESTMAIN_SHARED_SOURCES)
 foreach(source ${SHARED_SOURCES})
-    # TestMain needs device-related sources
+    # TestMain needs device-related sources, config sources, and utils
     if(source MATCHES ".*devices/.*\\.cpp$" OR
+       source MATCHES ".*core/ConfigManager\\.cpp$" OR
+       source MATCHES ".*core/ConfigRegistry\\.cpp$" OR
        source MATCHES ".*utils/.*\\.cpp$")
         list(APPEND TESTMAIN_SHARED_SOURCES ${source})
     endif()
@@ -280,6 +282,7 @@ if(TEST_MAIN_SOURCES)
     target_include_directories(TestMain PRIVATE
         "${CMAKE_SOURCE_DIR}/src"
         "${CMAKE_SOURCE_DIR}/include"
+        ${NLOHMANN_JSON_INCLUDE_DIR}  # Add nlohmann/json for TestMain too
     )
     
     # Link any required libraries for TestMain

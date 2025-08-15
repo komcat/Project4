@@ -1,28 +1,40 @@
 ﻿// TestMain.cpp
-// Simple test for PI and ACS standardized managers - TEST STUB VERSION
+// Simple test for PI and ACS standardized managers with real ConfigManager
 #include "devices/UniversalServices.h"
 #include "devices/motions/PIControllerManagerStandardized.h"
 #include "devices/motions/ACSControllerManagerStandardized.h"
-// #include "include/motions/MotionConfigManager.h"  // Not needed for testing
+#include "core/ConfigManager.h"
+#include "core/ConfigRegistry.h"
+#include "utils/LoggerAdapter.h"
 #include <iostream>
 #include <memory>
 
-// Mock MotionConfigManager for testing
-class MockMotionConfigManager {
-public:
-  MockMotionConfigManager(const std::string& configFile) {
-    std::cout << "MockMotionConfigManager: Loaded " << configFile << " (TEST MODE)" << std::endl;
-  }
-};
-
 int main() {
-  std::cout << "=== Testing Standardized Device Managers (STUB VERSION) ===" << std::endl;
+  std::cout << "=== Testing Standardized Device Managers with Real ConfigManager ===" << std::endl;
 
   try {
-    // === SETUP ===
-    MockMotionConfigManager configManager("motion_config.json");
+    // === SETUP CONFIGURATION SYSTEM ===
+    std::cout << "\n=== Setting up Configuration System ===" << std::endl;
 
-    // Create standardized managers (now using test stubs)
+    auto loggerAdapter = std::make_unique<LoggerAdapter>();
+
+    auto& configManager = ConfigManager::Instance();
+    configManager.SetLogger(loggerAdapter.get());
+    configManager.SetConfigDirectory("config");
+
+    // Load motion configurations
+    ConfigLogger::ConfigTestStart();
+    if (ConfigRegistry::LoadMotionConfigs()) {
+      ConfigLogger::ConfigLoaded("Motion configurations");
+    }
+    else {
+      ConfigLogger::ConfigError("Motion configurations", "Failed to load some configs");
+    }
+
+    // === SETUP DEVICE MANAGERS ===
+    std::cout << "\n=== Creating Device Managers ===" << std::endl;
+
+    // Create standardized managers using real ConfigManager
     auto piManager = std::make_unique<PIControllerManagerStandardized>(configManager);
     auto acsManager = std::make_unique<ACSControllerManagerStandardized>(configManager);
 
@@ -36,19 +48,19 @@ int main() {
     // === INITIALIZATION ===
     std::cout << "\n=== Initialization ===" << std::endl;
     if (Services::InitializeAll()) {
-      std::cout << "✓ All managers initialized successfully" << std::endl;
+      ConfigLogger::ConfigLoaded("All managers initialized successfully");
     }
     else {
-      std::cout << "✗ Some managers failed to initialize" << std::endl;
+      ConfigLogger::ConfigError("Managers", "Some managers failed to initialize");
     }
 
     // === CONNECTION ===
     std::cout << "\n=== Connection ===" << std::endl;
     if (Services::ConnectAll()) {
-      std::cout << "✓ All managers connected successfully" << std::endl;
+      ConfigLogger::ConfigLoaded("All managers connected successfully");
     }
     else {
-      std::cout << "⚠ Some managers failed to connect (this is normal if hardware isn't available)" << std::endl;
+      ConfigLogger::ConfigError("Connection", "Some managers failed to connect (normal if hardware unavailable)");
     }
 
     // === DEVICE ENUMERATION ===
@@ -57,20 +69,20 @@ int main() {
     if (Services::HasPIManager()) {
       auto* piMgr = Services::PIManager();
       auto piDevices = piMgr->GetDeviceNames();
-      std::cout << "PI Devices (" << piDevices.size() << "):" << std::endl;
+      Logger::Info(L"🤖 PI Devices (" + std::to_wstring(piDevices.size()) + L"):");
       for (const auto& name : piDevices) {
         bool connected = piMgr->IsDeviceConnected(name);
-        std::cout << "  - " << name << ": " << (connected ? "CONNECTED" : "DISCONNECTED") << std::endl;
+        ConfigLogger::MotionDeviceFound(name, "PI", connected);
       }
     }
 
     if (Services::HasACSManager()) {
       auto* acsMgr = Services::ACSManager();
       auto acsDevices = acsMgr->GetDeviceNames();
-      std::cout << "ACS Devices (" << acsDevices.size() << "):" << std::endl;
+      Logger::Info(L"🤖 ACS Devices (" + std::to_wstring(acsDevices.size()) + L"):");
       for (const auto& name : acsDevices) {
         bool connected = acsMgr->IsDeviceConnected(name);
-        std::cout << "  - " << name << ": " << (connected ? "CONNECTED" : "DISCONNECTED") << std::endl;
+        ConfigLogger::MotionDeviceFound(name, "ACS", connected);
       }
     }
 
@@ -79,17 +91,17 @@ int main() {
 
     // Try to get specific devices using convenience methods
     if (auto* hexLeft = Services::GetPIDevice("hex-left")) {
-      std::cout << "✓ Found PI device 'hex-left'" << std::endl;
+      Logger::Success(L"✅ Found PI device 'hex-left'");
     }
     else {
-      std::cout << "ℹ PI device 'hex-left' returned nullptr (expected in test mode)" << std::endl;
+      Logger::Info(L"ℹ️ PI device 'hex-left' returned nullptr (expected in test mode)");
     }
 
     if (auto* gantryMain = Services::GetACSDevice("gantry-main")) {
-      std::cout << "✓ Found ACS device 'gantry-main'" << std::endl;
+      Logger::Success(L"✅ Found ACS device 'gantry-main'");
     }
     else {
-      std::cout << "ℹ ACS device 'gantry-main' returned nullptr (expected in test mode)" << std::endl;
+      Logger::Info(L"ℹ️ ACS device 'gantry-main' returned nullptr (expected in test mode)");
     }
 
     // === INDIVIDUAL DEVICE CONNECTION TEST ===
@@ -98,32 +110,35 @@ int main() {
     if (Services::HasPIManager()) {
       auto* piMgr = Services::PIManager();
 
-      // Test connecting individual devices
-      std::cout << "Testing PI device connections:" << std::endl;
+      Logger::Info(L"🔌 Testing PI device connections:");
       if (piMgr->ConnectDevice("hex-left")) {
-        std::cout << "  ✓ Connected hex-left" << std::endl;
+        ConfigLogger::ConfigLoaded("Connected hex-left");
       }
 
       // Check connection status
       bool connected = piMgr->IsDeviceConnected("hex-left");
-      std::cout << "  hex-left status: " << (connected ? "CONNECTED" : "DISCONNECTED") << std::endl;
+      if (connected) {
+        ConfigLogger::MotionDeviceFound("hex-left", "PI", true);
+      }
 
       // Test disconnect
       if (piMgr->DisconnectDevice("hex-left")) {
-        std::cout << "  ✓ Disconnected hex-left" << std::endl;
+        ConfigLogger::ConfigLoaded("Disconnected hex-left");
       }
     }
 
     if (Services::HasACSManager()) {
       auto* acsMgr = Services::ACSManager();
 
-      std::cout << "Testing ACS device connections:" << std::endl;
+      Logger::Info(L"🔌 Testing ACS device connections:");
       if (acsMgr->ConnectDevice("gantry-main")) {
-        std::cout << "  ✓ Connected gantry-main" << std::endl;
+        ConfigLogger::ConfigLoaded("Connected gantry-main");
       }
 
       bool connected = acsMgr->IsDeviceConnected("gantry-main");
-      std::cout << "  gantry-main status: " << (connected ? "CONNECTED" : "DISCONNECTED") << std::endl;
+      if (connected) {
+        ConfigLogger::MotionDeviceFound("gantry-main", "ACS", true);
+      }
     }
 
     // === UNIVERSAL OPERATIONS TEST ===
@@ -132,28 +147,50 @@ int main() {
     // Test manager-level operations
     if (Services::HasPIManager()) {
       auto* piMgr = Services::PIManager();
-      std::cout << "PI Manager Type: " << piMgr->GetManagerType() << std::endl;
-      std::cout << "PI Manager Initialized: " << (piMgr->IsInitialized() ? "Yes" : "No") << std::endl;
+      Logger::Info(L"📊 PI Manager Type: " + ConfigLogger::StringToWString(piMgr->GetManagerType()));
+      Logger::Info(L"📊 PI Manager Initialized: " + std::wstring(piMgr->IsInitialized() ? L"Yes" : L"No"));
     }
 
     if (Services::HasACSManager()) {
       auto* acsMgr = Services::ACSManager();
-      std::cout << "ACS Manager Type: " << acsMgr->GetManagerType() << std::endl;
-      std::cout << "ACS Manager Initialized: " << (acsMgr->IsInitialized() ? "Yes" : "No") << std::endl;
+      Logger::Info(L"📊 ACS Manager Type: " + ConfigLogger::StringToWString(acsMgr->GetManagerType()));
+      Logger::Info(L"📊 ACS Manager Initialized: " + std::wstring(acsMgr->IsInitialized() ? L"Yes" : L"No"));
     }
+
+    // === CONFIGURATION INTEGRATION TEST ===
+    std::cout << "\n=== Configuration Integration Test ===" << std::endl;
+
+    // Test accessing configuration data that the managers are using
+    auto motionDevices = Config::Motion::GetAllDevices();
+    Logger::Info(L"📋 Total devices in configuration: " + std::to_wstring(motionDevices.size()));
+
+    int piCount = 0, acsCount = 0;
+    for (const auto& device : motionDevices) {
+      if (device.typeController == "PI" && device.isEnabled) piCount++;
+      if (device.typeController == "ACS" && device.isEnabled) acsCount++;
+    }
+
+    Logger::Info(L"📋 PI devices in config: " + std::to_wstring(piCount));
+    Logger::Info(L"📋 ACS devices in config: " + std::to_wstring(acsCount));
+
+    // Test position access
+    auto homePos = Config::Motion::GetPosition("gantry-main", "home");
+    ConfigLogger::PositionLoaded("gantry-main", "home");
+    Logger::Info(L"📍 Gantry home position: X=" + std::to_wstring(homePos.x) +
+      L", Y=" + std::to_wstring(homePos.y) + L", Z=" + std::to_wstring(homePos.z));
 
     // === CLEANUP ===
     std::cout << "\n=== Cleanup ===" << std::endl;
     Services::DisconnectAll();
     Services::Clear();
-    std::cout << "✓ Cleanup completed" << std::endl;
+    ConfigLogger::ConfigLoaded("Cleanup completed");
 
   }
   catch (const std::exception& e) {
-    std::cout << "✗ Error: " << e.what() << std::endl;
+    ConfigLogger::ConfigError("System", e.what());
     return 1;
   }
 
-  std::cout << "\n=== Test Completed Successfully ===" << std::endl;
+  ConfigLogger::ConfigTestEnd(true);
   return 0;
 }
