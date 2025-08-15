@@ -65,10 +65,35 @@ set(SDL2_DIR "${EXTERNAL_DIR}/sdl2")
 set(FREETYPE_DIR "${EXTERNAL_DIR}/freetype")
 set(NLOHMANN_JSON_DIR "${EXTERNAL_DIR}/nlohmann_json")
 set(PI_DIR "${EXTERNAL_DIR}/PI")
+set(ACSC_DIR "${EXTERNAL_DIR}/ACSC")
 set(SRCUTILS_DIR "${CMAKE_SOURCE_DIR}/src/utils")
 
 # ========================================
-# PI GCS2 DLL SETUP - THIS WAS MISSING!
+# ACSC LIBRARY SETUP
+# ========================================
+set(ACSC_INCLUDE_DIR "${ACSC_DIR}")
+
+if(WIN32)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        # x64 build
+        set(ACSC_LIBRARIES "${ACSC_DIR}/ACSCL_x64.LIB")
+    else()
+        # x86 build  
+        set(ACSC_LIBRARIES "${ACSC_DIR}/ACSCL_x86.LIB")
+    endif()
+    
+    # Check if the library file exists
+    if(NOT EXISTS "${ACSC_LIBRARIES}")
+        message(FATAL_ERROR "ACSC library not found at: ${ACSC_LIBRARIES}")
+    endif()
+    
+    message(STATUS "ACSC library found: ${ACSC_LIBRARIES}")
+else()
+    message(WARNING "ACSC library setup is only configured for Windows")
+endif()
+
+# ========================================
+# PI GCS2 DLL SETUP
 # ========================================
 set(PI_GCS2_INCLUDE_DIR "${PI_DIR}")
 
@@ -172,6 +197,25 @@ else()
 endif()
 
 # ========================================
+# COMMON INCLUDE DIRECTORIES FOR ALL TARGETS
+# ========================================
+set(COMMON_INCLUDE_DIRS
+    "${CMAKE_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/include"
+    ${NLOHMANN_JSON_INCLUDE_DIR}
+    ${PI_GCS2_INCLUDE_DIR}
+    ${ACSC_INCLUDE_DIR}
+)
+
+# ========================================
+# COMMON LIBRARIES FOR ALL TARGETS
+# ========================================
+set(COMMON_LIBRARIES
+    ${PI_GCS2_LIBRARIES}
+    ${ACSC_LIBRARIES}
+)
+
+# ========================================
 # AUTO-DISCOVER PROJECT FILES
 # ========================================
 
@@ -192,22 +236,24 @@ endif()
 set(MAIN_APP_SOURCES ${ALL_PROJECT_SOURCES})
 set(TEST_MAIN_SOURCES)
 set(TEST_CONFIG_SOURCES)
+set(TEST_ACS_SOURCES)  # ADD NEW ACS TEST SOURCES
 set(SHARED_SOURCES)
 
 # Separate different types of sources
 foreach(source ${ALL_PROJECT_SOURCES})
     if(source MATCHES ".*main\\.cpp$")
-        # This is the main application entry point (but don't add to MAIN_APP_SOURCES here, we'll filter later)
-        # Skip for now
+        # This is the main application entry point
     elseif(source MATCHES ".*TestMain\\.cpp$")
         # This is the original TestMain
         list(APPEND TEST_MAIN_SOURCES ${source})
     elseif(source MATCHES ".*TestConfigMain\\.cpp$")
         # This is the new ConfigManager test
         list(APPEND TEST_CONFIG_SOURCES ${source})
+    elseif(source MATCHES ".*TestACSIdentification\\.cpp$")
+        # This is the ACS identification test
+        list(APPEND TEST_ACS_SOURCES ${source})
     elseif(source MATCHES ".*Test.*\\.cpp$" OR source MATCHES ".*test.*\\.cpp$")
         # Other test files - skip them for now
-        # We'll handle them separately if needed in the future
     else()
         # These are shared sources that can be used by all executables
         list(APPEND SHARED_SOURCES ${source})
@@ -217,6 +263,7 @@ endforeach()
 # Remove test sources from main app
 filter_out(MAIN_APP_SOURCES ".*TestMain\\.cpp$")
 filter_out(MAIN_APP_SOURCES ".*TestConfigMain\\.cpp$")
+filter_out(MAIN_APP_SOURCES ".*TestACSIdentification\\.cpp$")  # ADD THIS LINE
 filter_out(MAIN_APP_SOURCES ".*Test.*\\.cpp$")
 filter_out(MAIN_APP_SOURCES ".*test.*\\.cpp$")
 
@@ -243,12 +290,26 @@ foreach(source ${SHARED_SOURCES})
     endif()
 endforeach()
 
+# Define shared sources for ACS identification test
+set(ACSTEST_SHARED_SOURCES)
+foreach(source ${SHARED_SOURCES})
+    # ACS test needs device manager sources, config sources, and utils
+    if(source MATCHES ".*devices/.*\\.cpp$" OR
+       source MATCHES ".*core/ConfigManager\\.cpp$" OR
+       source MATCHES ".*core/ConfigRegistry\\.cpp$" OR
+       source MATCHES ".*utils/.*\\.cpp$")
+        list(APPEND ACSTEST_SHARED_SOURCES ${source})
+    endif()
+endforeach()
+
 # Print discovered files for debugging
 print_file_list("ALL PROJECT SOURCES" "${ALL_PROJECT_SOURCES}")
 print_file_list("MAIN APP SOURCES" "${MAIN_APP_SOURCES}")
 print_file_list("TEST MAIN SOURCES" "${TEST_MAIN_SOURCES}")
 print_file_list("TEST CONFIG SOURCES" "${TEST_CONFIG_SOURCES}")
+print_file_list("TEST ACS SOURCES" "${TEST_ACS_SOURCES}")  # ADD THIS LINE
 print_file_list("CONFIG TEST SHARED" "${CONFIG_TEST_SHARED_SOURCES}")
+print_file_list("ACS TEST SHARED" "${ACSTEST_SHARED_SOURCES}")  # ADD THIS LINE
 
 # ========================================
 # BUILD MAIN APPLICATION (Project4)
@@ -264,14 +325,11 @@ if(MAIN_APP_SOURCES)
     
     # Include directories
     target_include_directories(Project4 PRIVATE
-        "${CMAKE_SOURCE_DIR}/src"
-        "${CMAKE_SOURCE_DIR}/include"
+        ${COMMON_INCLUDE_DIRS}
         ${SDL2_INCLUDE_DIRS}
         ${OPENGL_INCLUDE_DIRS}
         ${IMGUI_DIR}
         ${IMGUI_DIR}/backends
-        ${NLOHMANN_JSON_INCLUDE_DIR}
-        ${PI_GCS2_INCLUDE_DIR}  # ADD PI GCS2 INCLUDE
     )
     
     if(FREETYPE_ENABLED)
@@ -281,11 +339,11 @@ if(MAIN_APP_SOURCES)
         )
     endif()
     
-    # Link libraries - ADD PI GCS2 LIBRARY HERE!
+    # Link libraries
     target_link_libraries(Project4 
+        ${COMMON_LIBRARIES}
         ${SDL2_LIBRARIES}
         ${OPENGL_LIBRARIES}
-        ${PI_GCS2_LIBRARIES}  # THIS WAS MISSING!
     )
     
     if(FREETYPE_ENABLED)
@@ -308,20 +366,18 @@ if(TEST_MAIN_SOURCES)
         ${TEST_MAIN_SOURCES}
         ${TESTMAIN_SHARED_SOURCES}
         "external/PI/PI_GCS2_DLL.h"
+        "external/ACSC/ACSC.h"
     )
     
-    # Include directories (minimal for test)
+    # Include directories
     target_include_directories(TestMain PRIVATE
-        "${CMAKE_SOURCE_DIR}/src"
-        "${CMAKE_SOURCE_DIR}/include"
-        ${NLOHMANN_JSON_INCLUDE_DIR}
-        ${PI_GCS2_INCLUDE_DIR}  # ADD PI GCS2 INCLUDE FOR TEST
+        ${COMMON_INCLUDE_DIRS}
         ${SRCUTILS_DIR}
     )
     
-    # Link PI GCS2 library for TestMain too
+    # Link libraries
     target_link_libraries(TestMain 
-        ${PI_GCS2_LIBRARIES}  # ADD THIS LINE!
+        ${COMMON_LIBRARIES}
     )
     
 else()
@@ -342,15 +398,13 @@ if(TEST_CONFIG_SOURCES)
     
     # Include directories for ConfigManager test
     target_include_directories(TestConfigManager PRIVATE
-        "${CMAKE_SOURCE_DIR}/src"
-        "${CMAKE_SOURCE_DIR}/include"
-        ${NLOHMANN_JSON_INCLUDE_DIR}
-        ${PI_GCS2_INCLUDE_DIR}  # ADD PI GCS2 INCLUDE FOR CONFIG TEST TOO
+        ${COMMON_INCLUDE_DIRS}
     )
     
-    # Link PI GCS2 library for TestConfigManager if it uses PI functions
-    # (Only add this if TestConfigManager actually uses PI functions)
-    # target_link_libraries(TestConfigManager ${PI_GCS2_LIBRARIES})
+    # Link libraries (ConfigManager might not need all libraries)
+    target_link_libraries(TestConfigManager 
+        ${COMMON_LIBRARIES}
+    )
     
     # Create a custom target to run the config test
     add_custom_target(run_config_test
@@ -362,6 +416,40 @@ if(TEST_CONFIG_SOURCES)
     
 else()
     message(STATUS "TestConfigMain.cpp not found - skipping ConfigManager test executable")
+endif()
+
+# ========================================
+# BUILD ACS IDENTIFICATION TEST (TestACSIdentification)
+# ========================================
+
+if(TEST_ACS_SOURCES)
+    message(STATUS "Building ACS identification test application: TestACSIdentification")
+    
+    add_executable(TestACSIdentification 
+        ${TEST_ACS_SOURCES}
+        ${ACSTEST_SHARED_SOURCES}
+    )
+    
+    # Include directories for ACS identification test
+    target_include_directories(TestACSIdentification PRIVATE
+        ${COMMON_INCLUDE_DIRS}
+    )
+    
+    # Link libraries
+    target_link_libraries(TestACSIdentification 
+        ${COMMON_LIBRARIES}
+    )
+    
+    # Create a custom target to run the ACS test
+    add_custom_target(run_acs_test
+        COMMAND TestACSIdentification
+        DEPENDS TestACSIdentification
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Running ACS identification tests"
+    )
+    
+else()
+    message(STATUS "TestACSIdentification.cpp not found - skipping ACS identification test executable")
 endif()
 
 # ========================================
@@ -385,6 +473,16 @@ if(WIN32 AND TARGET TestMain AND PI_GCS2_DLLS AND EXISTS ${PI_GCS2_DLLS})
         ${PI_GCS2_DLLS}
         $<TARGET_FILE_DIR:TestMain>
         COMMENT "Copying PI GCS2 DLL to TestMain output directory"
+    )
+endif()
+
+# Copy PI GCS2 DLL for TestACSIdentification too
+if(WIN32 AND TARGET TestACSIdentification AND PI_GCS2_DLLS AND EXISTS ${PI_GCS2_DLLS})
+    add_custom_command(TARGET TestACSIdentification POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${PI_GCS2_DLLS}
+        $<TARGET_FILE_DIR:TestACSIdentification>
+        COMMENT "Copying PI GCS2 DLL to TestACSIdentification output directory"
     )
 endif()
 
@@ -431,6 +529,15 @@ if(TARGET TestConfigManager)
     endforeach()
 endif()
 
+if(TARGET TestACSIdentification)
+    foreach(source ${TEST_ACS_SOURCES} ${ACSTEST_SHARED_SOURCES})
+        file(RELATIVE_PATH rel_source "${CMAKE_SOURCE_DIR}/src" "${source}")
+        get_filename_component(source_dir "${rel_source}" DIRECTORY)
+        string(REPLACE "/" "\\" source_group_name "${source_dir}")
+        source_group("TestACSIdentification\\${source_group_name}" FILES "${source}")
+    endforeach()
+endif()
+
 # ========================================
 # PLATFORM-SPECIFIC SETTINGS
 # ========================================
@@ -456,7 +563,7 @@ else()
 endif()
 
 # Apply compiler settings to all targets
-foreach(target Project4 TestMain TestConfigManager)
+foreach(target Project4 TestMain TestConfigManager TestACSIdentification)
     if(TARGET ${target})
         if(MSVC)
             target_compile_options(${target} PRIVATE ${WINDOWS_COMPILE_OPTIONS})
@@ -491,9 +598,15 @@ if(TARGET TestConfigManager)
 else()
     message(STATUS "ConfigManager Test Application: NO")
 endif()
+if(TARGET TestACSIdentification)
+    message(STATUS "ACS Identification Test Application: YES")
+else()
+    message(STATUS "ACS Identification Test Application: NO")
+endif()
 message(STATUS "SDL2 Libraries: ${SDL2_LIBRARIES}")
-message(STATUS "PI GCS2 Libraries: ${PI_GCS2_LIBRARIES}")  # ADD THIS LINE
-message(STATUS "PI GCS2 DLLs: ${PI_GCS2_DLLS}")          # ADD THIS LINE
+message(STATUS "PI GCS2 Libraries: ${PI_GCS2_LIBRARIES}")
+message(STATUS "PI GCS2 DLLs: ${PI_GCS2_DLLS}")
+message(STATUS "ACSC Libraries: ${ACSC_LIBRARIES}")
 message(STATUS "FreeType Enabled: ${FREETYPE_ENABLED}")
 list(LENGTH IMGUI_SOURCES imgui_count)
 message(STATUS "ImGui Sources: ${imgui_count} files")

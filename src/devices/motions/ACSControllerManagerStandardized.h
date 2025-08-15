@@ -1,26 +1,36 @@
-// ACSControllerManagerStandardized.h
+// =====================================================
+// ACSControllerManagerStandardized.h - UPDATED FOR NEW INTERFACE
+// =====================================================
+
 #pragma once
 #include "devices/IDeviceManagerInterface.h"
 #include "core/ConfigManager.h"
+#include "devices/motions/ACSController.h"
 #include <vector>
 #include <string>
-
-// Forward declarations for testing
-class ACSController;
+#include <unordered_map>
+#include <memory>
 
 /**
- * Standardized ACS Controller Manager - TEST STUB VERSION
- * Returns mock data for testing without requiring actual hardware
- * Now uses real ConfigManager to load device configuration
+ * ACS Controller Manager - Now fully compliant with IDeviceManagerInterface
+ * KISS design - simple and focused on essential operations
  */
 class ACSControllerManagerStandardized : public DeviceManagerBase<ACSController> {
 private:
-  // Mock data for testing
-  std::vector<std::string> m_mockDeviceNames;
-  std::vector<bool> m_mockConnectionStates;
-
-  // Configuration manager reference
+  // Device management
+  std::unordered_map<std::string, std::unique_ptr<ACSController>> m_controllers;
+  std::vector<std::string> m_deviceNames;
   ConfigManager& m_configManager;
+
+  // Device configuration
+  struct DeviceConfig {
+    std::string name;
+    std::string ipAddress;
+    int port;
+    bool isEnabled;
+    std::string installAxes;
+  };
+  std::vector<DeviceConfig> m_deviceConfigs;
 
 public:
   explicit ACSControllerManagerStandardized(ConfigManager& configManager);
@@ -38,17 +48,20 @@ public:
   // === DEVICE ENUMERATION ===
   int GetDeviceCount() const override;
   std::vector<std::string> GetDeviceNames() const override;
+  bool HasDevice(const std::string& deviceName) const override;
 
   // === INDIVIDUAL DEVICE CONTROL ===
   bool ConnectDevice(const std::string& deviceName) override;
   bool DisconnectDevice(const std::string& deviceName) override;
   bool IsDeviceConnected(const std::string& deviceName) const override;
 
-  // === TESTING UTILITIES ===
-  void SetMockDeviceConnected(const std::string& deviceName, bool connected);
+  // === DEVICE IDENTIFICATION ===
+  bool GetDeviceIdentification(const std::string& deviceName, std::string& manufacturerInfo) override;
+
+  // === ADDITIONAL UTILITY ===
+  void PrintDeviceStatus() const;
 
 private:
-  // Helper methods
-  size_t FindDeviceIndex(const std::string& deviceName) const;
   void LoadDevicesFromConfig();
+  DeviceConfig* FindDeviceConfig(const std::string& deviceName);
 };

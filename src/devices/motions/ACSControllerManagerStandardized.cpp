@@ -1,14 +1,13 @@
+﻿// =====================================================
+// ACSControllerManagerStandardized.cpp - UPDATED IMPLEMENTATION
+// =====================================================
+
 #include "ACSControllerManagerStandardized.h"
 #include "core/ConfigRegistry.h"
 #include <iostream>
 
-// Constructor
 ACSControllerManagerStandardized::ACSControllerManagerStandardized(ConfigManager& configManager)
   : DeviceManagerBase("ACS_Controller_Manager"), m_configManager(configManager) {
-
-  std::cout << "ACSControllerManagerStandardized: Created with real ConfigManager" << std::endl;
-
-  // Load devices from configuration
   LoadDevicesFromConfig();
 }
 
@@ -16,150 +15,233 @@ ACSControllerManagerStandardized::ACSControllerManagerStandardized(ConfigManager
 bool ACSControllerManagerStandardized::Initialize() {
   if (m_isInitialized) return true;
 
-  std::cout << "ACSControllerManagerStandardized: Initialize() - TEST STUB with real config" << std::endl;
+  std::cout << "ACSControllerManager: Initialize() - KISS design" << std::endl;
 
-  // Reload configuration and devices
+  // Clear existing data
+  m_controllers.clear();
+  m_deviceNames.clear();
+
+  // Reload config and create controllers
   LoadDevicesFromConfig();
 
+  for (const auto& config : m_deviceConfigs) {
+    if (config.isEnabled) {
+      std::cout << "Creating ACS controller: " << config.name
+        << " @ " << config.ipAddress << ":" << config.port << std::endl;
+
+      // Create controller instance (constructor takes no parameters)
+      auto controller = std::make_unique<ACSController>();
+
+      // Configure the controller with device info if needed
+      // (Note: ConfigureFromDevice would need MotionDevice struct)
+
+      m_controllers[config.name] = std::move(controller);
+      m_deviceNames.push_back(config.name);
+    }
+  }
+
   m_isInitialized = true;
+  std::cout << "ACSControllerManager: Initialized with " << m_controllers.size() << " devices" << std::endl;
   return true;
 }
 
 bool ACSControllerManagerStandardized::ConnectAll() {
   if (!m_isInitialized) return false;
 
-  std::cout << "ACSControllerManagerStandardized: ConnectAll() - TEST STUB" << std::endl;
+  std::cout << "ACSControllerManager: ConnectAll()" << std::endl;
+  bool allSuccess = true;
 
-  // Mock: Try to connect all devices with different pattern than PI
-  for (size_t i = 0; i < m_mockConnectionStates.size(); ++i) {
-    if (i < m_mockDeviceNames.size()) {
-      m_mockConnectionStates[i] = (i % 3 != 0); // Different pattern than PI
-      std::cout << "  Mock device '" << m_mockDeviceNames[i]
-        << "': " << (m_mockConnectionStates[i] ? "CONNECTED" : "FAILED") << std::endl;
+  for (const auto& [deviceName, controller] : m_controllers) {
+    // Find the config for this device to get IP and port
+    DeviceConfig* config = FindDeviceConfig(deviceName);
+    if (!config) {
+      std::cout << "  " << deviceName << ": ❌ FAIL (no config)" << std::endl;
+      allSuccess = false;
+      continue;
+    }
+
+    std::cout << "  Connecting " << deviceName << "... ";
+    if (controller->Connect(config->ipAddress, config->port)) {
+      std::cout << "✅ OK" << std::endl;
+    }
+    else {
+      std::cout << "❌ FAIL" << std::endl;
+      allSuccess = false;
     }
   }
-  return true; // Always succeed in test mode
+
+  return allSuccess;
 }
 
 bool ACSControllerManagerStandardized::DisconnectAll() {
-  std::cout << "ACSControllerManagerStandardized: DisconnectAll() - TEST STUB" << std::endl;
+  std::cout << "ACSControllerManager: DisconnectAll()" << std::endl;
+  bool allSuccess = true;
 
-  // Mock: Disconnect all devices
-  for (size_t i = 0; i < m_mockConnectionStates.size(); ++i) {
-    m_mockConnectionStates[i] = false;
+  for (const auto& [deviceName, controller] : m_controllers) {
+    std::cout << "  Disconnecting " << deviceName << "... ";
+    if (controller->Disconnect()) {
+      std::cout << "✅ OK" << std::endl;
+    }
+    else {
+      std::cout << "❌ FAIL" << std::endl;
+      allSuccess = false;
+    }
   }
-  return true;
+
+  return allSuccess;
 }
 
 // === DEVICE ACCESS ===
 ACSController* ACSControllerManagerStandardized::GetDevice(const std::string& deviceName) {
-  std::cout << "ACSControllerManagerStandardized: GetDevice('" << deviceName
-    << "') - TEST STUB returning nullptr" << std::endl;
-  return nullptr; // Return nullptr for test mode (no actual devices)
+  auto it = m_controllers.find(deviceName);
+  return (it != m_controllers.end()) ? it->second.get() : nullptr;
 }
 
 const ACSController* ACSControllerManagerStandardized::GetDevice(const std::string& deviceName) const {
-  return nullptr; // Test mode
+  auto it = m_controllers.find(deviceName);
+  return (it != m_controllers.end()) ? it->second.get() : nullptr;
 }
 
 // === DEVICE ENUMERATION ===
 int ACSControllerManagerStandardized::GetDeviceCount() const {
-  return static_cast<int>(m_mockDeviceNames.size());
+  return static_cast<int>(m_deviceNames.size());
 }
 
 std::vector<std::string> ACSControllerManagerStandardized::GetDeviceNames() const {
-  return m_mockDeviceNames;
+  return m_deviceNames;
+}
+
+bool ACSControllerManagerStandardized::HasDevice(const std::string& deviceName) const {
+  return m_controllers.find(deviceName) != m_controllers.end();
 }
 
 // === INDIVIDUAL DEVICE CONTROL ===
 bool ACSControllerManagerStandardized::ConnectDevice(const std::string& deviceName) {
-  std::cout << "ACSControllerManagerStandardized: ConnectDevice('" << deviceName
-    << "') - TEST STUB" << std::endl;
+  auto it = m_controllers.find(deviceName);
+  if (it != m_controllers.end()) {
+    // Find the config for this device to get IP and port
+    DeviceConfig* config = FindDeviceConfig(deviceName);
+    if (!config) {
+      std::cout << "ACSControllerManager: " << deviceName << " config not found" << std::endl;
+      return false;
+    }
 
-  size_t index = FindDeviceIndex(deviceName);
-  if (index < m_mockDeviceNames.size()) {
-    m_mockConnectionStates[index] = true;
-    std::cout << "  Mock connected device: " << deviceName << std::endl;
-    return true;
+    bool success = it->second->Connect(config->ipAddress, config->port);
+    std::cout << "ACSControllerManager: " << deviceName << " connect: "
+      << (success ? "✅ OK" : "❌ FAIL") << std::endl;
+    return success;
   }
-
-  std::cout << "  Mock device not found: " << deviceName << std::endl;
+  std::cout << "ACSControllerManager: " << deviceName << " not found" << std::endl;
   return false;
 }
 
 bool ACSControllerManagerStandardized::DisconnectDevice(const std::string& deviceName) {
-  std::cout << "ACSControllerManagerStandardized: DisconnectDevice('" << deviceName
-    << "') - TEST STUB" << std::endl;
-
-  size_t index = FindDeviceIndex(deviceName);
-  if (index < m_mockDeviceNames.size()) {
-    m_mockConnectionStates[index] = false;
-    std::cout << "  Mock disconnected device: " << deviceName << std::endl;
-    return true;
+  auto it = m_controllers.find(deviceName);
+  if (it != m_controllers.end()) {
+    bool success = it->second->Disconnect();
+    std::cout << "ACSControllerManager: " << deviceName << " disconnect: "
+      << (success ? "✅ OK" : "❌ FAIL") << std::endl;
+    return success;
   }
-
+  std::cout << "ACSControllerManager: " << deviceName << " not found" << std::endl;
   return false;
 }
 
 bool ACSControllerManagerStandardized::IsDeviceConnected(const std::string& deviceName) const {
-  size_t index = FindDeviceIndex(deviceName);
-  if (index < m_mockDeviceNames.size() && index < m_mockConnectionStates.size()) {
-    return m_mockConnectionStates[index];
-  }
-  return false;
+  auto it = m_controllers.find(deviceName);
+  return (it != m_controllers.end()) ? it->second->IsConnected() : false;
 }
 
-// === TESTING UTILITIES ===
-void ACSControllerManagerStandardized::SetMockDeviceConnected(const std::string& deviceName, bool connected) {
-  size_t index = FindDeviceIndex(deviceName);
-  if (index < m_mockDeviceNames.size() && index < m_mockConnectionStates.size()) {
-    m_mockConnectionStates[index] = connected;
-    std::cout << "Mock: Set " << deviceName << " to "
-      << (connected ? "CONNECTED" : "DISCONNECTED") << std::endl;
+// === DEVICE IDENTIFICATION ===
+bool ACSControllerManagerStandardized::GetDeviceIdentification(const std::string& deviceName, std::string& manufacturerInfo) {
+  auto it = m_controllers.find(deviceName);
+  if (it == m_controllers.end()) {
+    manufacturerInfo = "Device not found";
+    return false;
+  }
+
+  ACSController* controller = it->second.get();
+  if (!controller->IsConnected()) {
+    manufacturerInfo = "ACS Controller [DISCONNECTED]";
+    return false;
+  }
+
+  if (controller->GetDeviceIdentification(manufacturerInfo)) {
+    std::cout << "ACSControllerManager: " << deviceName << " ID: " << manufacturerInfo << std::endl;
+    return true;
+  }
+  else {
+    manufacturerInfo = "ACS Controller [ID failed]";
+    return false;
   }
 }
 
-// === PRIVATE HELPER METHODS ===
-size_t ACSControllerManagerStandardized::FindDeviceIndex(const std::string& deviceName) const {
-  for (size_t i = 0; i < m_mockDeviceNames.size(); ++i) {
-    if (m_mockDeviceNames[i] == deviceName) {
-      return i;
-    }
+// === ADDITIONAL UTILITY ===
+void ACSControllerManagerStandardized::PrintDeviceStatus() const {
+  std::cout << "\n=== ACS Device Status ===" << std::endl;
+  std::cout << "Total devices: " << m_controllers.size() << std::endl;
+
+  for (const auto& [deviceName, controller] : m_controllers) {
+    bool connected = controller->IsConnected();
+    std::cout << "  " << deviceName << ": " << (connected ? "✅ CONNECTED" : "❌ DISCONNECTED") << std::endl;
   }
-  return m_mockDeviceNames.size(); // Return invalid index if not found
+  std::cout << "=========================" << std::endl;
 }
 
+// === PRIVATE HELPERS ===
 void ACSControllerManagerStandardized::LoadDevicesFromConfig() {
-  std::cout << "ACSControllerManagerStandardized: Loading ACS devices from configuration..." << std::endl;
+  m_deviceConfigs.clear();
 
-  // Clear existing mock data
-  m_mockDeviceNames.clear();
-  m_mockConnectionStates.clear();
+  std::cout << "ACSControllerManager: Loading ACS devices from configuration..." << std::endl;
 
   try {
-    // Get all motion devices from config
+    // Get all motion devices from config - this is the correct way
     auto devices = Config::Motion::GetAllDevices();
 
     // Filter for ACS controller devices
     for (const auto& device : devices) {
       if (device.typeController == "ACS" && device.isEnabled) {
-        m_mockDeviceNames.push_back(device.name);
-        m_mockConnectionStates.push_back(false); // Start disconnected
-        std::cout << "  Found ACS device: " << device.name
-          << " @ " << device.ipAddress << ":" << device.port << std::endl;
+        DeviceConfig config;
+        config.name = device.name;
+        config.ipAddress = device.ipAddress;
+        config.port = device.port;
+        config.isEnabled = device.isEnabled;
+        config.installAxes = device.installAxes;
+
+        m_deviceConfigs.push_back(config);
+
+        std::cout << "ACSControllerManager: Found ACS device: " << config.name
+          << " @ " << config.ipAddress << ":" << config.port
+          << " [" << config.installAxes << "]" << std::endl;
       }
     }
 
-    std::cout << "ACSControllerManagerStandardized: Loaded " << m_mockDeviceNames.size()
+    std::cout << "ACSControllerManager: Loaded " << m_deviceConfigs.size()
       << " ACS devices from configuration" << std::endl;
 
   }
   catch (const std::exception& e) {
-    std::cout << "ACSControllerManagerStandardized: Error loading from config: " << e.what() << std::endl;
+    std::cout << "ACSControllerManager: Error loading from config: " << e.what() << std::endl;
 
     // Fallback to hardcoded devices if config fails
-    m_mockDeviceNames = { "gantry-main", "gantry-secondary" };
-    m_mockConnectionStates = { false, false };
-    std::cout << "ACSControllerManagerStandardized: Using fallback device list" << std::endl;
+    DeviceConfig fallback;
+    fallback.name = "gantry-main";
+    fallback.ipAddress = "192.168.1.100";
+    fallback.port = 701;
+    fallback.isEnabled = true;
+    fallback.installAxes = "XYZ";
+
+    m_deviceConfigs.push_back(fallback);
+    std::cout << "ACSControllerManager: Using fallback device configuration" << std::endl;
   }
+}
+
+ACSControllerManagerStandardized::DeviceConfig*
+ACSControllerManagerStandardized::FindDeviceConfig(const std::string& deviceName) {
+  for (auto& config : m_deviceConfigs) {
+    if (config.name == deviceName) {
+      return &config;
+    }
+  }
+  return nullptr;
 }
