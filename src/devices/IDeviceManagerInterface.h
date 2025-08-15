@@ -31,6 +31,9 @@ public:
   virtual bool DisconnectDevice(const std::string& deviceName) = 0;
   virtual bool IsDeviceConnected(const std::string& deviceName) const = 0;
 
+  // Device information
+  virtual bool GetDeviceIdentification(const std::string& deviceName, std::string& manufacturerInfo) = 0;
+
   // === MANAGER INFO ===
   virtual std::string GetManagerType() const = 0;
   virtual bool IsInitialized() const = 0;

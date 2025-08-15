@@ -35,16 +35,42 @@ PIController::PIController()
 }
 
 PIController::~PIController() {
-	
 	std::cout << "PIController: Shutting down controller" << std::endl;
-	// Stop communication thread
+
+	// CRITICAL: Stop communication thread FIRST without holding any locks
 	StopCommunicationThread();
 
-	// Disconnect if still connected
+	// THEN disconnect (after thread is safely stopped)
 	if (m_isConnected) {
 		Disconnect();
 	}
 }
+
+bool PIController::GetDeviceIdentification(std::string& manufacturerInfo) {
+	if (!m_isConnected) {
+		std::cout << "PIController: Cannot get device identification - not connected" << std::endl;
+		return false;
+	}
+
+	const int BUFFER_SIZE = 1024;
+	char buffer[BUFFER_SIZE];
+
+	BOOL result = PI_qIDN(m_controllerId, buffer, BUFFER_SIZE);
+
+	if (result) {
+		manufacturerInfo = std::string(buffer);
+		if (m_debugVerbose) {
+			std::cout << "PIController: Device identification: " << manufacturerInfo << std::endl;
+		}
+		return true;
+	}
+	else {
+		std::cout << "PIController: Failed to get device identification" << std::endl;
+		manufacturerInfo.clear();
+		return false;
+	}
+}
+
 
 void PIController::StartCommunicationThread() {
 	if (!m_threadRunning) {
@@ -56,44 +82,50 @@ void PIController::StartCommunicationThread() {
 	}
 }
 
+
 void PIController::StopCommunicationThread() {
-	if (m_threadRunning) {
-		{
-			std::lock_guard<std::mutex> lock(m_mutex);
-			m_terminateThread.store(true);
-		}
+	if (m_threadRunning.load()) {
+		// Signal termination using atomic - NO MUTEX NEEDED
+		m_terminateThread.store(true);
+
+		// Wake up the thread if it's sleeping
 		m_condVar.notify_all();
 
+		// Join the thread
 		if (m_communicationThread.joinable()) {
 			m_communicationThread.join();
 		}
 
 		m_threadRunning.store(false);
-		
 		std::cout << "PIController: Communication thread stopped" << std::endl;
 	}
 }
 
 
-// Add this improved version to the CommunicationThreadFunc
-// 4. Update CommunicationThreadFunc in pi_controller.cpp
-// Updated communication thread - now includes analog reading
+
+
+// === PIController.cpp - REWRITE COMMUNICATION THREAD ===
+
 void PIController::CommunicationThreadFunc() {
-	const auto updateInterval = std::chrono::milliseconds(50);  // 20Hz update rate
+	const auto updateInterval = std::chrono::milliseconds(50);
 	int frameCounter = 0;
 
-	while (!m_terminateThread) {
-		if (m_isConnected) {
+	std::cout << "PIController: Communication thread started" << std::endl;
+
+	while (!m_terminateThread.load()) {
+		if (m_isConnected.load()) {
 			frameCounter++;
 
-			// Always update positions
+			// Update positions (use short-lived locks)
 			std::map<std::string, double> positions;
 			if (GetPositions(positions)) {
-				std::lock_guard<std::mutex> lock(m_mutex);
-				m_axisPositions = positions;
+				{
+					std::lock_guard<std::mutex> lock(m_mutex);
+					m_axisPositions = positions;
+				}
 			}
 
-			// Update motion status
+			// Update motion status (short-lived lock)
 			{
 				const char* allAxes = "X Y Z U V W";
 				BOOL isMovingArray[6] = { FALSE, FALSE, FALSE, FALSE, FALSE, FALSE };
@@ -101,14 +133,13 @@ void PIController::CommunicationThreadFunc() {
 				if (PI_IsMoving(m_controllerId, allAxes, isMovingArray)) {
 					std::lock_guard<std::mutex> lock(m_mutex);
 					const std::vector<std::string> axisNames = { "X", "Y", "Z", "U", "V", "W" };
-
 					for (int i = 0; i < 6; i++) {
 						m_axisMoving[axisNames[i]] = (isMovingArray[i] == TRUE);
 					}
 				}
 			}
 
-			// Update servo status less frequently
+			// Update servo status less frequently (short-lived locks)
 			if (frameCounter % 3 == 0) {
 				for (const auto& axis : m_availableAxes) {
 					bool enabled;
@@ -119,16 +150,17 @@ void PIController::CommunicationThreadFunc() {
 				}
 			}
 
-			// NEW: Update analog readings every frame (if enabled)
-			if (m_enableAnalogReading && frameCounter % 2 == 0) {  // Update analog every other frame (10Hz)
+			// Update analog readings (short-lived locks)
+			if (m_enableAnalogReading.load() && frameCounter % 2 == 0) {
 				UpdateAnalogReadings();
 			}
 		}
 
-		// Wait for next update or termination
-		std::unique_lock<std::mutex> lock(m_mutex);
-		m_condVar.wait_for(lock, updateInterval, [this]() { return m_terminateThread.load(); });
+		// CRITICAL: Simple sleep with termination check - NO MUTEX
+		std::this_thread::sleep_for(updateInterval);
 	}
+
+	std::cout << "PIController: Communication thread exiting cleanly" << std::endl;
 }
 
 // NEW: Update analog readings in communication thread

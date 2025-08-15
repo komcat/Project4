@@ -107,6 +107,8 @@ public:
   bool HomeAllDevices();
   bool StopAllDevices();
   std::vector<std::string> GetConnectedDeviceNames() const;
+  // Device information
+  bool GetDeviceIdentification(const std::string& deviceName, std::string& manufacturerInfo) override;
 
 private:
   // === PRIVATE HELPER METHODS ===
@@ -131,4 +133,6 @@ private:
   // Validation
   bool ValidateDeviceConfig(const PIDeviceConfig& config) const;
   bool IsValidDeviceName(const std::string& deviceName) const;
+
+  bool DisconnectDeviceUnsafe(const std::string& deviceName);
 };

@@ -1,15 +1,15 @@
-﻿
+﻿// TestMain.cpp
 // Hardware testing for PI standardized managers with real ConfigManager
 #include "devices/UniversalServices.h"
 #include "devices/motions/PIControllerManagerStandardized.h"
 #include "core/ConfigManager.h"
 #include "core/ConfigRegistry.h"
 #include "utils/LoggerAdapter.h"
+#include "devices/motions/PIController.h"
 #include <iostream>
 #include <memory>
 #include <thread>
 #include <chrono>
-#include "devices/motions/PIController.h" 
 
 void TestPIDeviceOperations(PIController* device, const std::string& deviceName) {
   if (!device || !device->IsConnected()) {
@@ -20,12 +20,31 @@ void TestPIDeviceOperations(PIController* device, const std::string& deviceName)
   std::cout << "    🧪 Testing PI device operations for: " << deviceName << std::endl;
 
   try {
+    // Test 0: Basic device information
+    std::cout << "    📋 Device Information:" << std::endl;
+    std::cout << "      Controller ID: " << device->GetControllerId() << std::endl;
+    std::cout << "      Available Axes: ";
+    for (const auto& axis : device->GetAvailableAxes()) {
+      std::cout << axis << " ";
+    }
+    std::cout << std::endl;
+
+    // Test 0.5: Device manufacturer identification
+    std::cout << "    🏭 Device Manufacturer Information:" << std::endl;
+    std::string manufacturerInfo;
+    if (device->GetDeviceIdentification(manufacturerInfo)) {
+      std::cout << "      Identification: " << manufacturerInfo << std::endl;
+    }
+    else {
+      std::cout << "      ⚠️ Failed to retrieve device identification" << std::endl;
+    }
+
     // Test 1: Get current positions
     std::map<std::string, double> positions;
     if (device->GetPositions(positions)) {
       std::cout << "    📍 Current positions:" << std::endl;
       for (const auto& [axis, pos] : positions) {
-        std::cout << "      " << axis << ": " << pos << " mm" << std::endl;
+        std::cout << "      " << axis << ": " << std::fixed << std::setprecision(6) << pos << " mm" << std::endl;
       }
     }
     else {
@@ -39,38 +58,98 @@ void TestPIDeviceOperations(PIController* device, const std::string& deviceName)
       if (device->IsServoEnabled(axis, enabled)) {
         std::cout << "      " << axis << ": " << (enabled ? "ENABLED" : "DISABLED") << std::endl;
       }
+      else {
+        std::cout << "      " << axis << ": QUERY FAILED" << std::endl;
+      }
     }
 
-    // Test 3: Small relative move (safe test)
-    std::cout << "    🏃 Testing small relative move on X axis (+0.1mm)..." << std::endl;
-    if (device->MoveRelative("X", 0.1, true)) {
-      std::cout << "    ✅ Relative move completed successfully" << std::endl;
+    // Test 3: Check motion status
+    std::cout << "    🏃 Motion status:" << std::endl;
+    for (const auto& axis : device->GetAvailableAxes()) {
+      bool moving = device->IsMoving(axis);
+      std::cout << "      " << axis << ": " << (moving ? "MOVING" : "IDLE") << std::endl;
+    }
 
-      // Move back to original position
-      std::cout << "    🔄 Moving back to original position..." << std::endl;
-      device->MoveRelative("X", -0.1, true);
+    // Test 4: System velocity
+    double velocity = 0.0;
+    if (device->GetSystemVelocity(velocity)) {
+      std::cout << "    🚀 Current system velocity: " << std::fixed << std::setprecision(3) << velocity << " mm/s" << std::endl;
     }
     else {
-      std::cout << "    ❌ Relative move failed" << std::endl;
+      std::cout << "    ⚠️ Failed to read system velocity" << std::endl;
     }
 
-    // Test 4: Get analog readings (if available)
+    // Test 5: Individual axis velocities
+    std::cout << "    🎯 Individual axis velocities:" << std::endl;
+    for (const auto& axis : device->GetAvailableAxes()) {
+      double axisVel = 0.0;
+      if (device->GetVelocity(axis, axisVel)) {
+        std::cout << "      " << axis << ": " << std::fixed << std::setprecision(3) << axisVel << " mm/s" << std::endl;
+      }
+      else {
+        std::cout << "      " << axis << ": QUERY FAILED" << std::endl;
+      }
+    }
+
+    // Test 6: Analog channels information
     int analogChannels = 0;
     if (device->GetAnalogChannelCount(analogChannels)) {
       std::cout << "    📊 Analog channels available: " << analogChannels << std::endl;
 
       if (analogChannels > 0) {
-        double voltage = 0.0;
-        if (device->GetAnalogVoltage(1, voltage)) {
-          std::cout << "    📈 Analog channel 1 voltage: " << voltage << " V" << std::endl;
+        std::cout << "    📈 Analog channel readings:" << std::endl;
+        for (int ch = 1; ch <= (std::min)(analogChannels, 6); ch++) {  // Read first 6 channels
+          double voltage = 0.0;
+          if (device->GetAnalogVoltage(ch, voltage)) {
+            std::cout << "      Channel " << ch << ": " << std::fixed << std::setprecision(4) << voltage << " V" << std::endl;
+          }
+          else {
+            std::cout << "      Channel " << ch << ": READ FAILED" << std::endl;
+          }
         }
       }
     }
+    else {
+      std::cout << "    ⚠️ Failed to query analog channel count" << std::endl;
+    }
 
-    // Test 5: System velocity
-    double velocity = 0.0;
-    if (device->GetSystemVelocity(velocity)) {
-      std::cout << "    🚀 Current system velocity: " << velocity << " mm/s" << std::endl;
+    // Test 7: Connection status details
+    std::cout << "    🔌 Connection details:" << std::endl;
+    std::cout << "      Connected: " << (device->IsConnected() ? "YES" : "NO") << std::endl;
+    std::cout << "      Analog reading enabled: " << (device->IsAnalogReadingEnabled() ? "YES" : "NO") << std::endl;
+
+    // Test 8: Small relative move test (OPTIONAL - only if user confirms)
+    std::cout << "    🏃 Would you like to test a small movement? (0.1mm on X axis) [y/N]: ";
+    char response;
+    std::cin >> response;
+    std::cin.ignore(); // Clear the input buffer
+
+    if (response == 'y' || response == 'Y') {
+      std::cout << "    🏃 Testing small relative move on X axis (+0.1mm)..." << std::endl;
+      if (device->MoveRelative("X", 0.1, true)) {
+        std::cout << "    ✅ Relative move completed successfully" << std::endl;
+
+        // Read new position
+        double newPos = 0.0;
+        if (device->GetPosition("X", newPos)) {
+          std::cout << "    📍 New X position: " << std::fixed << std::setprecision(6) << newPos << " mm" << std::endl;
+        }
+
+        // Move back to original position
+        std::cout << "    🔄 Moving back to original position..." << std::endl;
+        if (device->MoveRelative("X", -0.1, true)) {
+          std::cout << "    ✅ Return move completed successfully" << std::endl;
+        }
+        else {
+          std::cout << "    ⚠️ Return move failed" << std::endl;
+        }
+      }
+      else {
+        std::cout << "    ❌ Relative move failed" << std::endl;
+      }
+    }
+    else {
+      std::cout << "    ℹ️ Movement test skipped" << std::endl;
     }
 
   }
@@ -78,7 +157,6 @@ void TestPIDeviceOperations(PIController* device, const std::string& deviceName)
     std::cout << "    ❌ Exception during PI device testing: " << e.what() << std::endl;
   }
 }
-
 
 int main() {
   std::cout << "=== Hardware Testing for PI Controller Manager ===" << std::endl;
@@ -162,6 +240,26 @@ int main() {
       else {
         std::cout << "❌ FAILED" << std::endl;
         ConfigLogger::MotionDeviceFound(deviceName, "PI", false);
+      }
+    }
+
+    // === PI DEVICE IDENTIFICATION TEST ===
+    if (anyConnected) {
+      std::cout << "\n=== PI Device Identification ===" << std::endl;
+      std::cout << "🏭 Retrieving manufacturer information for connected devices..." << std::endl;
+
+      for (const auto& deviceName : piDevices) {
+        if (piManager->IsDeviceConnected(deviceName)) {
+          std::cout << "  " << deviceName << ": ";
+
+          std::string manufacturerInfo;
+          if (piManager->GetDeviceIdentification(deviceName, manufacturerInfo)) {
+            std::cout << "✅ " << manufacturerInfo << std::endl;
+          }
+          else {
+            std::cout << "❌ Failed to get identification" << std::endl;
+          }
+        }
       }
     }
 
@@ -261,20 +359,39 @@ int main() {
     std::cout << "🧹 Clearing services..." << std::endl;
     Services::Clear();
 
+    // CRITICAL: Clear PI manager pointer before destruction
+    std::cout << "🔧 Releasing PI manager..." << std::endl;
+    piManager.reset();  // Explicitly destroy PI manager first
+
+    // CRITICAL: Clear logger adapter before ConfigManager
+    std::cout << "🔧 Releasing logger adapter..." << std::endl;
+    configManager.SetLogger(nullptr);  // Remove logger reference first
+    loggerAdapter.reset();  // Then destroy logger
+
+    std::cout << "✅ All resources cleaned up safely" << std::endl;
     ConfigLogger::ConfigLoaded("Safe shutdown completed");
 
   }
   catch (const std::exception& e) {
     std::cout << "❌ CRITICAL ERROR: " << e.what() << std::endl;
-    ConfigLogger::ConfigError("System", e.what());
 
-    // Emergency cleanup
+    // DON'T use ConfigLogger during error handling - it might be the source!
+    std::cout << "❌ Config error in System: " << e.what() << std::endl;
+
+    // Emergency cleanup - be very careful about order
     std::cout << "🚨 Performing emergency cleanup..." << std::endl;
     try {
+      // Clear services first (this is accessible)
       Services::Clear();
+
+      // Clear logger reference (ConfigManager is singleton, so this is safe)
+      auto& configManager = ConfigManager::Instance();
+      configManager.SetLogger(nullptr);
+
+      std::cout << "✅ Emergency cleanup completed" << std::endl;
     }
     catch (...) {
-      std::cout << "⚠️ Emergency cleanup failed" << std::endl;
+      std::cout << "⚠️ Emergency cleanup failed - forcing exit" << std::endl;
     }
 
     return 1;

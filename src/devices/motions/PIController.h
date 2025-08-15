@@ -24,6 +24,9 @@ public:
   void SetDebugVerbose(bool enabled) { m_debugVerbose = enabled; }
   bool GetDebugVerbose() const { return m_debugVerbose; }
 
+  // Device identification - get manufacturer information
+  bool GetDeviceIdentification(std::string& manufacturerInfo);
+
   // Connection methods
   bool Connect(const std::string& ipAddress, int port = 50000);
   void Disconnect();
