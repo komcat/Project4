@@ -1,16 +1,91 @@
-﻿// TestMain.cpp
-// Simple test for PI and ACS standardized managers with real ConfigManager
+﻿
+// Hardware testing for PI standardized managers with real ConfigManager
 #include "devices/UniversalServices.h"
 #include "devices/motions/PIControllerManagerStandardized.h"
-#include "devices/motions/ACSControllerManagerStandardized.h"
 #include "core/ConfigManager.h"
 #include "core/ConfigRegistry.h"
 #include "utils/LoggerAdapter.h"
 #include <iostream>
 #include <memory>
+#include <thread>
+#include <chrono>
+#include "devices/motions/PIController.h" 
+
+void TestPIDeviceOperations(PIController* device, const std::string& deviceName) {
+  if (!device || !device->IsConnected()) {
+    std::cout << "    ❌ Device " << deviceName << " not available for testing" << std::endl;
+    return;
+  }
+
+  std::cout << "    🧪 Testing PI device operations for: " << deviceName << std::endl;
+
+  try {
+    // Test 1: Get current positions
+    std::map<std::string, double> positions;
+    if (device->GetPositions(positions)) {
+      std::cout << "    📍 Current positions:" << std::endl;
+      for (const auto& [axis, pos] : positions) {
+        std::cout << "      " << axis << ": " << pos << " mm" << std::endl;
+      }
+    }
+    else {
+      std::cout << "    ⚠️ Failed to read current positions" << std::endl;
+    }
+
+    // Test 2: Check servo status
+    std::cout << "    🔧 Servo status:" << std::endl;
+    for (const auto& axis : device->GetAvailableAxes()) {
+      bool enabled = false;
+      if (device->IsServoEnabled(axis, enabled)) {
+        std::cout << "      " << axis << ": " << (enabled ? "ENABLED" : "DISABLED") << std::endl;
+      }
+    }
+
+    // Test 3: Small relative move (safe test)
+    std::cout << "    🏃 Testing small relative move on X axis (+0.1mm)..." << std::endl;
+    if (device->MoveRelative("X", 0.1, true)) {
+      std::cout << "    ✅ Relative move completed successfully" << std::endl;
+
+      // Move back to original position
+      std::cout << "    🔄 Moving back to original position..." << std::endl;
+      device->MoveRelative("X", -0.1, true);
+    }
+    else {
+      std::cout << "    ❌ Relative move failed" << std::endl;
+    }
+
+    // Test 4: Get analog readings (if available)
+    int analogChannels = 0;
+    if (device->GetAnalogChannelCount(analogChannels)) {
+      std::cout << "    📊 Analog channels available: " << analogChannels << std::endl;
+
+      if (analogChannels > 0) {
+        double voltage = 0.0;
+        if (device->GetAnalogVoltage(1, voltage)) {
+          std::cout << "    📈 Analog channel 1 voltage: " << voltage << " V" << std::endl;
+        }
+      }
+    }
+
+    // Test 5: System velocity
+    double velocity = 0.0;
+    if (device->GetSystemVelocity(velocity)) {
+      std::cout << "    🚀 Current system velocity: " << velocity << " mm/s" << std::endl;
+    }
+
+  }
+  catch (const std::exception& e) {
+    std::cout << "    ❌ Exception during PI device testing: " << e.what() << std::endl;
+  }
+}
+
 
 int main() {
-  std::cout << "=== Testing Standardized Device Managers with Real ConfigManager ===" << std::endl;
+  std::cout << "=== Hardware Testing for PI Controller Manager ===" << std::endl;
+  std::cout << "⚠️  WARNING: This test will attempt to connect to real PI hardware!" << std::endl;
+  std::cout << "🔌 Ensure PI controllers are powered and connected to network" << std::endl;
+  std::cout << "\nPress Enter to continue or Ctrl+C to abort..." << std::endl;
+  std::cin.get();
 
   try {
     // === SETUP CONFIGURATION SYSTEM ===
@@ -31,166 +106,181 @@ int main() {
       ConfigLogger::ConfigError("Motion configurations", "Failed to load some configs");
     }
 
-    // === SETUP DEVICE MANAGERS ===
-    std::cout << "\n=== Creating Device Managers ===" << std::endl;
+    // === SETUP PI DEVICE MANAGER ===
+    std::cout << "\n=== Creating PI Device Manager in HARDWARE MODE ===" << std::endl;
 
-    // Create standardized managers using real ConfigManager
-    auto piManager = std::make_unique<PIControllerManagerStandardized>(configManager);
-    auto acsManager = std::make_unique<ACSControllerManagerStandardized>(configManager);
+    // Create standardized PI manager in HARDWARE MODE
+    auto piManager = std::make_unique<PIControllerManagerStandardized>(configManager, true);  // TRUE = hardware mode
 
     // Register with Services
     Services::RegisterPIManager(piManager.get());
-    Services::RegisterACSManager(acsManager.get());
 
     // Print initial status
-    Services::PrintStatus();
+    std::cout << "📊 Services Status:" << std::endl;
+    std::cout << "  PI Manager: " << (Services::HasPIManager() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
 
     // === INITIALIZATION ===
     std::cout << "\n=== Initialization ===" << std::endl;
-    if (Services::InitializeAll()) {
-      ConfigLogger::ConfigLoaded("All managers initialized successfully");
+    if (piManager->Initialize()) {
+      ConfigLogger::ConfigLoaded("PI manager initialized successfully");
     }
     else {
-      ConfigLogger::ConfigError("Managers", "Some managers failed to initialize");
+      ConfigLogger::ConfigError("PI Manager", "Failed to initialize");
     }
 
-    // === CONNECTION ===
-    std::cout << "\n=== Connection ===" << std::endl;
-    if (Services::ConnectAll()) {
-      ConfigLogger::ConfigLoaded("All managers connected successfully");
-    }
-    else {
-      ConfigLogger::ConfigError("Connection", "Some managers failed to connect (normal if hardware unavailable)");
-    }
+    // Print device configurations before attempting connection
+    std::cout << "\n=== PI Device Configurations ===" << std::endl;
 
-    // === DEVICE ENUMERATION ===
-    std::cout << "\n=== Device Enumeration ===" << std::endl;
-
-    if (Services::HasPIManager()) {
-      auto* piMgr = Services::PIManager();
-      auto piDevices = piMgr->GetDeviceNames();
-      Logger::Info(L"🤖 PI Devices (" + std::to_wstring(piDevices.size()) + L"):");
-      for (const auto& name : piDevices) {
-        bool connected = piMgr->IsDeviceConnected(name);
-        ConfigLogger::MotionDeviceFound(name, "PI", connected);
-      }
+    std::cout << "📋 PI Device Configurations:" << std::endl;
+    auto configs = piManager->GetAllDeviceConfigs();
+    for (const auto& config : configs) {
+      std::cout << "  " << config.name
+        << " @ " << config.ipAddress << ":" << config.port
+        << " [" << (config.isEnabled ? "ENABLED" : "DISABLED") << "]"
+        << " Axes: " << config.installAxes << std::endl;
     }
 
-    if (Services::HasACSManager()) {
-      auto* acsMgr = Services::ACSManager();
-      auto acsDevices = acsMgr->GetDeviceNames();
-      Logger::Info(L"🤖 ACS Devices (" + std::to_wstring(acsDevices.size()) + L"):");
-      for (const auto& name : acsDevices) {
-        bool connected = acsMgr->IsDeviceConnected(name);
-        ConfigLogger::MotionDeviceFound(name, "ACS", connected);
-      }
-    }
+    // === HARDWARE CONNECTION TEST ===
+    std::cout << "\n=== Attempting PI Hardware Connection ===" << std::endl;
+    std::cout << "🔌 This will attempt to connect to actual PI controllers..." << std::endl;
 
-    // === DEVICE ACCESS TEST ===
-    std::cout << "\n=== Device Access Test ===" << std::endl;
+    // Track connection results
+    bool anyConnected = false;
+    auto piDevices = piManager->GetDeviceNames();
 
-    // Try to get specific devices using convenience methods
-    if (auto* hexLeft = Services::GetPIDevice("hex-left")) {
-      Logger::Success(L"✅ Found PI device 'hex-left'");
-    }
-    else {
-      Logger::Info(L"ℹ️ PI device 'hex-left' returned nullptr (expected in test mode)");
-    }
+    std::cout << "🤖 Attempting to connect " << piDevices.size() << " PI devices:" << std::endl;
 
-    if (auto* gantryMain = Services::GetACSDevice("gantry-main")) {
-      Logger::Success(L"✅ Found ACS device 'gantry-main'");
-    }
-    else {
-      Logger::Info(L"ℹ️ ACS device 'gantry-main' returned nullptr (expected in test mode)");
-    }
+    for (const auto& deviceName : piDevices) {
+      std::cout << "  Connecting to " << deviceName << "... ";
 
-    // === INDIVIDUAL DEVICE CONNECTION TEST ===
-    std::cout << "\n=== Individual Device Connection Test ===" << std::endl;
-
-    if (Services::HasPIManager()) {
-      auto* piMgr = Services::PIManager();
-
-      Logger::Info(L"🔌 Testing PI device connections:");
-      if (piMgr->ConnectDevice("hex-left")) {
-        ConfigLogger::ConfigLoaded("Connected hex-left");
-      }
-
-      // Check connection status
-      bool connected = piMgr->IsDeviceConnected("hex-left");
+      bool connected = piManager->ConnectDevice(deviceName);
       if (connected) {
-        ConfigLogger::MotionDeviceFound("hex-left", "PI", true);
+        std::cout << "✅ SUCCESS" << std::endl;
+        anyConnected = true;
+        ConfigLogger::MotionDeviceFound(deviceName, "PI", true);
       }
-
-      // Test disconnect
-      if (piMgr->DisconnectDevice("hex-left")) {
-        ConfigLogger::ConfigLoaded("Disconnected hex-left");
-      }
-    }
-
-    if (Services::HasACSManager()) {
-      auto* acsMgr = Services::ACSManager();
-
-      Logger::Info(L"🔌 Testing ACS device connections:");
-      if (acsMgr->ConnectDevice("gantry-main")) {
-        ConfigLogger::ConfigLoaded("Connected gantry-main");
-      }
-
-      bool connected = acsMgr->IsDeviceConnected("gantry-main");
-      if (connected) {
-        ConfigLogger::MotionDeviceFound("gantry-main", "ACS", true);
+      else {
+        std::cout << "❌ FAILED" << std::endl;
+        ConfigLogger::MotionDeviceFound(deviceName, "PI", false);
       }
     }
 
-    // === UNIVERSAL OPERATIONS TEST ===
-    std::cout << "\n=== Universal Operations Test ===" << std::endl;
+    // === CONNECTION STATUS SUMMARY ===
+    std::cout << "\n=== PI Connection Status Summary ===" << std::endl;
+    piManager->PrintDeviceStatus();
 
-    // Test manager-level operations
-    if (Services::HasPIManager()) {
-      auto* piMgr = Services::PIManager();
-      Logger::Info(L"📊 PI Manager Type: " + ConfigLogger::StringToWString(piMgr->GetManagerType()));
-      Logger::Info(L"📊 PI Manager Initialized: " + std::wstring(piMgr->IsInitialized() ? L"Yes" : L"No"));
+    if (!anyConnected) {
+      std::cout << "⚠️  No devices connected successfully." << std::endl;
+      std::cout << "   This is normal if:" << std::endl;
+      std::cout << "   - Hardware is not powered on" << std::endl;
+      std::cout << "   - Network configuration is incorrect" << std::endl;
+      std::cout << "   - IP addresses in config don't match hardware" << std::endl;
+      std::cout << "   - Controllers are already connected to another application" << std::endl;
+    }
+    else {
+      std::cout << "🎉 Successfully connected to some devices!" << std::endl;
     }
 
-    if (Services::HasACSManager()) {
-      auto* acsMgr = Services::ACSManager();
-      Logger::Info(L"📊 ACS Manager Type: " + ConfigLogger::StringToWString(acsMgr->GetManagerType()));
-      Logger::Info(L"📊 ACS Manager Initialized: " + std::wstring(acsMgr->IsInitialized() ? L"Yes" : L"No"));
+    // === HARDWARE OPERATIONS TEST ===
+    if (anyConnected) {
+      std::cout << "\n=== PI Hardware Operations Test ===" << std::endl;
+      std::cout << "🧪 Testing connected PI devices..." << std::endl;
+
+      // Test PI devices
+      for (const auto& deviceName : piDevices) {
+        if (piManager->IsDeviceConnected(deviceName)) {
+          PIController* device = piManager->GetDevice(deviceName);
+          TestPIDeviceOperations(device, deviceName);
+        }
+      }
+
+      // === BATCH OPERATIONS TEST ===
+      std::cout << "\n=== PI Batch Operations Test ===" << std::endl;
+
+      std::cout << "🛑 Testing emergency stop for all PI devices..." << std::endl;
+      if (piManager->StopAllDevices()) {
+        std::cout << "✅ All PI devices stopped successfully" << std::endl;
+      }
+      else {
+        std::cout << "⚠️ Some PI devices failed to stop" << std::endl;
+      }
+
+      // === POSITION MONITORING ===
+      std::cout << "\n=== PI Position Monitoring Test ===" << std::endl;
+      std::cout << "📍 Monitoring PI positions for 5 seconds..." << std::endl;
+
+      for (int i = 0; i < 5; i++) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        for (const auto& deviceName : piDevices) {
+          if (piManager->IsDeviceConnected(deviceName)) {
+            PIController* device = piManager->GetDevice(deviceName);
+            if (device) {
+              std::map<std::string, double> positions;
+              if (device->GetPositions(positions)) {
+                std::cout << "  " << deviceName << " [" << (i + 1) << "/5]: ";
+                for (const auto& [axis, pos] : positions) {
+                  std::cout << axis << "=" << std::fixed << std::setprecision(3) << pos << " ";
+                }
+                std::cout << std::endl;
+              }
+            }
+          }
+        }
+      }
     }
 
-    // === CONFIGURATION INTEGRATION TEST ===
-    std::cout << "\n=== Configuration Integration Test ===" << std::endl;
+    // === CONFIGURATION VERIFICATION ===
+    std::cout << "\n=== PI Configuration Verification ===" << std::endl;
 
-    // Test accessing configuration data that the managers are using
     auto motionDevices = Config::Motion::GetAllDevices();
     Logger::Info(L"📋 Total devices in configuration: " + std::to_wstring(motionDevices.size()));
 
-    int piCount = 0, acsCount = 0;
+    int piCount = 0, connectedPICount = 0;
     for (const auto& device : motionDevices) {
-      if (device.typeController == "PI" && device.isEnabled) piCount++;
-      if (device.typeController == "ACS" && device.isEnabled) acsCount++;
+      if (device.typeController == "PI" && device.isEnabled) {
+        piCount++;
+        if (piManager->IsDeviceConnected(device.name)) {
+          connectedPICount++;
+        }
+      }
     }
 
-    Logger::Info(L"📋 PI devices in config: " + std::to_wstring(piCount));
-    Logger::Info(L"📋 ACS devices in config: " + std::to_wstring(acsCount));
-
-    // Test position access
-    auto homePos = Config::Motion::GetPosition("gantry-main", "home");
-    ConfigLogger::PositionLoaded("gantry-main", "home");
-    Logger::Info(L"📍 Gantry home position: X=" + std::to_wstring(homePos.x) +
-      L", Y=" + std::to_wstring(homePos.y) + L", Z=" + std::to_wstring(homePos.z));
+    std::cout << "📊 PI Summary:" << std::endl;
+    std::cout << "  PI devices configured: " << piCount << ", connected: " << connectedPICount << std::endl;
 
     // === CLEANUP ===
-    std::cout << "\n=== Cleanup ===" << std::endl;
-    Services::DisconnectAll();
+    std::cout << "\n=== Safe Shutdown ===" << std::endl;
+    std::cout << "🛑 Stopping all PI devices before disconnection..." << std::endl;
+
+    piManager->StopAllDevices();
+
+    std::cout << "🔌 Disconnecting all PI devices..." << std::endl;
+    piManager->DisconnectAll();
+
+    std::cout << "🧹 Clearing services..." << std::endl;
     Services::Clear();
-    ConfigLogger::ConfigLoaded("Cleanup completed");
+
+    ConfigLogger::ConfigLoaded("Safe shutdown completed");
 
   }
   catch (const std::exception& e) {
+    std::cout << "❌ CRITICAL ERROR: " << e.what() << std::endl;
     ConfigLogger::ConfigError("System", e.what());
+
+    // Emergency cleanup
+    std::cout << "🚨 Performing emergency cleanup..." << std::endl;
+    try {
+      Services::Clear();
+    }
+    catch (...) {
+      std::cout << "⚠️ Emergency cleanup failed" << std::endl;
+    }
+
     return 1;
   }
 
   ConfigLogger::ConfigTestEnd(true);
+  std::cout << "\n🎉 PI hardware testing completed successfully!" << std::endl;
   return 0;
 }
