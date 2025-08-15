@@ -1,0 +1,48 @@
+{
+  "MotionDevices": {
+    "gantry-main": {
+      "Id": 3,
+      "IpAddress": "192.168.0.50",
+      "IsEnabled": true,
+      "Name": "gantry-main",
+      "Port": 701,
+      "installAxes": "X Y Z",
+      "typeController": "ACS"
+    },
+    "hex-bottom": {
+      "Id": 1,
+      "IpAddress": "192.168.0.20",
+      "IsEnabled": false,
+      "Name": "hex-bottom",
+      "Port": 50000,
+      "installAxes": "X Y Z U V W",
+      "typeController": "PI"
+    },
+    "hex-left": {
+      "Id": 0,
+      "IpAddress": "192.168.0.10",
+      "IsEnabled": true,
+      "Name": "hex-left",
+      "Port": 50000,
+      "installAxes": "X Y Z U V W",
+      "typeController": "PI"
+    },
+    "hex-right": {
+      "Id": 2,
+      "IpAddress": "192.168.0.30",
+      "IsEnabled": true,
+      "Name": "hex-right",
+      "Port": 50000,
+      "installAxes": "X Y Z U V W",
+      "typeController": "PI"
+    }
+  },
+  "Settings": {
+    "AutoReconnect": true,
+    "ConnectionTimeout": 5000,
+    "DefaultAcceleration": 5.0,
+    "DefaultSpeed": 10.0,
+    "LogLevel": "info",
+    "PositionTolerance": 0.001
+  }
+}

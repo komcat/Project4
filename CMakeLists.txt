@@ -62,6 +62,19 @@ endfunction()
 set(EXTERNAL_DIR "${CMAKE_SOURCE_DIR}/external")
 set(SDL2_DIR "${EXTERNAL_DIR}/sdl2")
 set(FREETYPE_DIR "${EXTERNAL_DIR}/freetype")
+set(NLOHMANN_JSON_DIR "${EXTERNAL_DIR}/nlohmann_json")
+
+# Setup nlohmann/json
+set(NLOHMANN_JSON_INCLUDE_DIR "")
+if(EXISTS "${NLOHMANN_JSON_DIR}/single_include")
+    set(NLOHMANN_JSON_INCLUDE_DIR "${NLOHMANN_JSON_DIR}/single_include")
+    message(STATUS "Found nlohmann/json single header at: ${NLOHMANN_JSON_INCLUDE_DIR}")
+elseif(EXISTS "${NLOHMANN_JSON_DIR}/include")
+    set(NLOHMANN_JSON_INCLUDE_DIR "${NLOHMANN_JSON_DIR}/include")
+    message(STATUS "Found nlohmann/json include directory at: ${NLOHMANN_JSON_INCLUDE_DIR}")
+else()
+    message(WARNING "nlohmann/json not found in expected locations")
+endif()
 
 # Find SDL2
 if(WIN32)
@@ -143,44 +156,68 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/include")
     list(APPEND ALL_PROJECT_HEADERS ${LEGACY_HEADERS})
 endif()
 
-# Filter out test files from main app sources
-set(MAIN_APP_SOURCES ${ALL_PROJECT_SOURCES})
-filter_out(MAIN_APP_SOURCES ".*TestMain\\.cpp$")
-filter_out(MAIN_APP_SOURCES ".*test.*\\.cpp$")  # Remove any other test files
-filter_out(MAIN_APP_SOURCES ".*Test.*\\.cpp$")  # Remove any Test*.cpp files
+# ========================================
+# SEPARATE MAIN APP, TESTS, AND SHARED SOURCES
+# ========================================
 
-# Create test app sources (only if TestMain.cpp exists)
-set(TEST_APP_SOURCES)
+set(MAIN_APP_SOURCES ${ALL_PROJECT_SOURCES})
+set(TEST_MAIN_SOURCES)
+set(TEST_CONFIG_SOURCES)
+set(SHARED_SOURCES)
+
+# Separate different types of sources
 foreach(source ${ALL_PROJECT_SOURCES})
-    if(source MATCHES ".*TestMain\\.cpp$")
-        list(APPEND TEST_APP_SOURCES ${source})
-    endif()
-    # Add utility sources that tests might need
-    if(source MATCHES ".*utils/.*\\.cpp$")
-        list(APPEND TEST_APP_SOURCES ${source})
+    if(source MATCHES ".*main\\.cpp$")
+        # This is the main application entry point (but don't add to MAIN_APP_SOURCES here, we'll filter later)
+        # Skip for now
+    elseif(source MATCHES ".*TestMain\\.cpp$")
+        # This is the original TestMain
+        list(APPEND TEST_MAIN_SOURCES ${source})
+    elseif(source MATCHES ".*TestConfigMain\\.cpp$")
+        # This is the new ConfigManager test
+        list(APPEND TEST_CONFIG_SOURCES ${source})
+    elseif(source MATCHES ".*Test.*\\.cpp$" OR source MATCHES ".*test.*\\.cpp$")
+        # Other test files - skip them for now
+        # We'll handle them separately if needed in the future
+    else()
+        # These are shared sources that can be used by all executables
+        list(APPEND SHARED_SOURCES ${source})
     endif()
 endforeach()
 
-# Remove duplicate utils from test sources
-list(REMOVE_DUPLICATES TEST_APP_SOURCES)
+# Remove test sources from main app
+filter_out(MAIN_APP_SOURCES ".*TestMain\\.cpp$")
+filter_out(MAIN_APP_SOURCES ".*TestConfigMain\\.cpp$")
+filter_out(MAIN_APP_SOURCES ".*Test.*\\.cpp$")
+filter_out(MAIN_APP_SOURCES ".*test.*\\.cpp$")
 
-# Print discovered files for debugging (simplified)
-function(print_file_list title file_list)
-    message(STATUS "=== ${title} ===")
-    foreach(file IN LISTS file_list)
-        file(RELATIVE_PATH rel_file "${CMAKE_SOURCE_DIR}" "${file}")
-        message(STATUS "  Found: ${rel_file}")
-    endforeach()
-    list(LENGTH file_list file_count)
-    message(STATUS "  Total: ${file_count} files")
-    message(STATUS "")
-endfunction()
+# Define which shared sources each test needs
+set(CONFIG_TEST_SHARED_SOURCES)
+foreach(source ${SHARED_SOURCES})
+    # ConfigManager test needs core utilities and ConfigManager itself
+    if(source MATCHES ".*core/ConfigManager\\.cpp$" OR
+       source MATCHES ".*core/ConfigRegistry\\.cpp$" OR
+       source MATCHES ".*utils/.*\\.cpp$")
+        list(APPEND CONFIG_TEST_SHARED_SOURCES ${source})
+    endif()
+endforeach()
+
+# Define shared sources for original TestMain
+set(TESTMAIN_SHARED_SOURCES)
+foreach(source ${SHARED_SOURCES})
+    # TestMain needs device-related sources
+    if(source MATCHES ".*devices/.*\\.cpp$" OR
+       source MATCHES ".*utils/.*\\.cpp$")
+        list(APPEND TESTMAIN_SHARED_SOURCES ${source})
+    endif()
+endforeach()
 
 # Print discovered files for debugging
 print_file_list("ALL PROJECT SOURCES" "${ALL_PROJECT_SOURCES}")
-print_file_list("ALL PROJECT HEADERS" "${ALL_PROJECT_HEADERS}")
 print_file_list("MAIN APP SOURCES" "${MAIN_APP_SOURCES}")
-print_file_list("TEST APP SOURCES" "${TEST_APP_SOURCES}")
+print_file_list("TEST MAIN SOURCES" "${TEST_MAIN_SOURCES}")
+print_file_list("TEST CONFIG SOURCES" "${TEST_CONFIG_SOURCES}")
+print_file_list("CONFIG TEST SHARED" "${CONFIG_TEST_SHARED_SOURCES}")
 
 # ========================================
 # BUILD MAIN APPLICATION (Project4)
@@ -202,6 +239,7 @@ if(MAIN_APP_SOURCES)
         ${OPENGL_INCLUDE_DIRS}
         ${IMGUI_DIR}
         ${IMGUI_DIR}/backends
+        ${NLOHMANN_JSON_INCLUDE_DIR}  # Add nlohmann/json for main app too
     )
     
     if(FREETYPE_ENABLED)
@@ -222,44 +260,21 @@ if(MAIN_APP_SOURCES)
         target_compile_definitions(Project4 PRIVATE IMGUI_ENABLE_FREETYPE)
     endif()
     
-    # Create source groups for IDE organization
-    foreach(source ${MAIN_APP_SOURCES})
-        file(RELATIVE_PATH rel_source "${CMAKE_SOURCE_DIR}/src" "${source}")
-        get_filename_component(source_dir "${rel_source}" DIRECTORY)
-        string(REPLACE "/" "\\" source_group_name "${source_dir}")
-        source_group("Source Files\\${source_group_name}" FILES "${source}")
-    endforeach()
-    
-    foreach(header ${ALL_PROJECT_HEADERS})
-        file(RELATIVE_PATH rel_header "${CMAKE_SOURCE_DIR}" "${header}")
-        get_filename_component(header_dir "${rel_header}" DIRECTORY)
-        string(REPLACE "/" "\\" header_group_name "${header_dir}")
-        source_group("Header Files\\${header_group_name}" FILES "${header}")
-    endforeach()
-    
-    source_group("External\\ImGui" FILES ${IMGUI_SOURCES})
-    
 else()
     message(FATAL_ERROR "No main application sources found!")
 endif()
 
 # ========================================
-# BUILD TEST APPLICATION (TestMain)
+# BUILD ORIGINAL TEST APPLICATION (TestMain)
 # ========================================
 
-# Check if we have TestMain.cpp and can build test app
-set(HAS_TEST_MAIN FALSE)
-foreach(source ${TEST_APP_SOURCES})
-    if(source MATCHES ".*TestMain\\.cpp$")
-        set(HAS_TEST_MAIN TRUE)
-        break()
-    endif()
-endforeach()
-
-if(HAS_TEST_MAIN AND TEST_APP_SOURCES)
-    message(STATUS "Building test application: TestMain")
+if(TEST_MAIN_SOURCES)
+    message(STATUS "Building original test application: TestMain")
     
-    add_executable(TestMain ${TEST_APP_SOURCES})
+    add_executable(TestMain 
+        ${TEST_MAIN_SOURCES}
+        ${TESTMAIN_SHARED_SOURCES}
+    )
     
     # Include directories (minimal for test)
     target_include_directories(TestMain PRIVATE
@@ -267,16 +282,88 @@ if(HAS_TEST_MAIN AND TEST_APP_SOURCES)
         "${CMAKE_SOURCE_DIR}/include"
     )
     
-    # Create source groups for test app
-    foreach(source ${TEST_APP_SOURCES})
+    # Link any required libraries for TestMain
+    # Add libraries as needed for your device tests
+    
+else()
+    message(STATUS "TestMain.cpp not found - skipping original test executable")
+endif()
+
+# ========================================
+# BUILD CONFIG MANAGER TEST (TestConfigManager)
+# ========================================
+
+if(TEST_CONFIG_SOURCES)
+    message(STATUS "Building ConfigManager test application: TestConfigManager")
+    
+    add_executable(TestConfigManager 
+        ${TEST_CONFIG_SOURCES}
+        ${CONFIG_TEST_SHARED_SOURCES}
+    )
+    
+    # Include directories for ConfigManager test
+    target_include_directories(TestConfigManager PRIVATE
+        "${CMAKE_SOURCE_DIR}/src"
+        "${CMAKE_SOURCE_DIR}/include"
+        ${NLOHMANN_JSON_INCLUDE_DIR}  # Add nlohmann/json include path
+    )
+    
+    # ConfigManager test doesn't need to link anything for nlohmann/json (header-only)
+    message(STATUS "TestConfigManager will use nlohmann/json from: ${NLOHMANN_JSON_INCLUDE_DIR}")
+    
+    # Create a custom target to run the config test
+    add_custom_target(run_config_test
+        COMMAND TestConfigManager
+        DEPENDS TestConfigManager
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Running ConfigManager tests"
+    )
+    
+else()
+    message(STATUS "TestConfigMain.cpp not found - skipping ConfigManager test executable")
+endif()
+
+# ========================================
+# SOURCE GROUPS FOR IDE ORGANIZATION
+# ========================================
+
+# Create source groups for main app
+if(TARGET Project4)
+    foreach(source ${MAIN_APP_SOURCES})
         file(RELATIVE_PATH rel_source "${CMAKE_SOURCE_DIR}/src" "${source}")
         get_filename_component(source_dir "${rel_source}" DIRECTORY)
         string(REPLACE "/" "\\" source_group_name "${source_dir}")
-        source_group("Test\\${source_group_name}" FILES "${source}")
+        source_group("Source Files\\${source_group_name}" FILES "${source}")
     endforeach()
     
-else()
-    message(STATUS "TestMain.cpp not found or insufficient sources - skipping test executable")
+    source_group("External\\ImGui" FILES ${IMGUI_SOURCES})
+endif()
+
+# Create source groups for headers
+foreach(header ${ALL_PROJECT_HEADERS})
+    file(RELATIVE_PATH rel_header "${CMAKE_SOURCE_DIR}" "${header}")
+    get_filename_component(header_dir "${rel_header}" DIRECTORY)
+    string(REPLACE "/" "\\" header_group_name "${header_dir}")
+    source_group("Header Files\\${header_group_name}" FILES "${header}")
+endforeach()
+
+# Create source groups for test applications
+if(TARGET TestMain)
+    foreach(source ${TEST_MAIN_SOURCES} ${TESTMAIN_SHARED_SOURCES})
+        file(RELATIVE_PATH rel_source "${CMAKE_SOURCE_DIR}/src" "${source}")
+        get_filename_component(source_dir "${rel_source}" DIRECTORY)
+        string(REPLACE "/" "\\" source_group_name "${source_dir}")
+        source_group("TestMain\\${source_group_name}" FILES "${source}")
+    endforeach()
+endif()
+
+if(TARGET TestConfigManager)
+    foreach(source ${TEST_CONFIG_SOURCES} ${CONFIG_TEST_SHARED_SOURCES})
+        file(RELATIVE_PATH rel_source "${CMAKE_SOURCE_DIR}/src" "${source}")
+        get_filename_component(source_dir "${rel_source}" DIRECTORY)
+        string(REPLACE "/" "\\" source_group_name "${source_dir}")
+        source_group("TestConfigManager\\${source_group_name}" FILES "${source}")
+    endforeach()
 endif()
 
 # ========================================
@@ -296,7 +383,7 @@ if(WIN32)
         target_link_libraries(Project4 winmm gdi32 opengl32)
     endif()
     
-    # Compiler settings for both targets
+    # Compiler settings for all targets
     set(WINDOWS_COMPILE_OPTIONS /W3)
     set(WINDOWS_COMPILE_DEFINITIONS _CRT_SECURE_NO_WARNINGS)
 else()
@@ -304,7 +391,7 @@ else()
 endif()
 
 # Apply compiler settings to all targets
-foreach(target Project4 TestMain)
+foreach(target Project4 TestMain TestConfigManager)
     if(TARGET ${target})
         if(MSVC)
             target_compile_options(${target} PRIVATE ${WINDOWS_COMPILE_OPTIONS})
@@ -330,9 +417,14 @@ else()
     message(STATUS "Main Application: NO")
 endif()
 if(TARGET TestMain)
-    message(STATUS "Test Application: YES")
+    message(STATUS "Original Test Application: YES")
 else()
-    message(STATUS "Test Application: NO")
+    message(STATUS "Original Test Application: NO")
+endif()
+if(TARGET TestConfigManager)
+    message(STATUS "ConfigManager Test Application: YES")
+else()
+    message(STATUS "ConfigManager Test Application: NO")
 endif()
 message(STATUS "SDL2 Libraries: ${SDL2_LIBRARIES}")
 message(STATUS "FreeType Enabled: ${FREETYPE_ENABLED}")
