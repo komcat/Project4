@@ -14,7 +14,7 @@
 
 int main(int argc, char* argv[]) {
   // Initialize platform-specific console support
-  UnicodeUtils::InitializeConsole();
+  //UnicodeUtils::InitializeConsole();
 
   Logger::Info(L"🎯 === COMPREHENSIVE IMGUI EMOJI TEST ===");
   Logger::Info(L"This test addresses all common emoji display issues:");

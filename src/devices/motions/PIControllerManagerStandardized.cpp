@@ -13,8 +13,8 @@ PIControllerManagerStandardized::PIControllerManagerStandardized(ConfigManager& 
 	m_configManager(configManager),
 	m_hardwareMode(hardwareMode) {
 
-	std::cout << "PIControllerManagerStandardized: Created "
-		<< (m_hardwareMode ? "[HARDWARE MODE]" : "[MOCK MODE]") << std::endl;
+	//std::cout << "PIControllerManagerStandardized: Created "
+	//	<< (m_hardwareMode ? "[HARDWARE MODE]" : "[MOCK MODE]") << std::endl;
 
 	// Load device configurations
 	LoadDevicesFromConfig();
