@@ -255,7 +255,7 @@ private:
   }
 
   void OnParameterChanged(const std::string& param, float value) {
-    auto config = Services.MotionConfig();
+    auto config = Services.Config();
     if (config) {
       // config->SetParameter(param, value);
     }

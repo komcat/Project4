@@ -1,23 +1,29 @@
 ﻿// ============================================================================
-// SERVICE LOCATOR PATTERN - Zero Dependencies, Maximum Flexibility
+// SERVICE LOCATOR - Zero Dependencies, All Services Included
 // ============================================================================
 
-// src/core/ServiceLocator.h
+// ServiceLocator.h - Complete version with all original services + ConfigManager
 #pragma once
-#include <memory>
 #include <iostream>
 
-// Forward declarations for all possible services
-class PIControllerManager;
-class ACSControllerManager;
+// Forward declarations - ZERO dependencies!
+class PIControllerManagerStandardized;
+class ACSControllerManagerStandardized;
+class ConfigManager;
 class CameraManager;
 class EziIOManager;
 class CLD101xManager;
 class Keithley2400Manager;
 class PneumaticManager;
-class MotionConfigManager;
 class MachineOperations;
 
+/**
+ * ServiceLocator - Complete Zero Dependencies Service Registry
+ *
+ * All services (including ConfigManager) are registered here
+ * No direct dependencies between classes - everything goes through services
+ * Includes all original services for backward compatibility
+ */
 class ServiceLocator {
 public:
   // Singleton access
@@ -33,16 +39,24 @@ public:
   // SERVICE REGISTRATION (called once during startup)
   // ========================================================================
 
-  void RegisterPI(PIControllerManager* service) {
+  // New ConfigManager service (zero dependencies!)
+  void RegisterConfigManager(ConfigManager* service) {
+    configManager = service;
+    if (service) std::cout << "✅ ConfigManager Service registered" << std::endl;
+  }
+
+  // Updated motion managers (use standardized versions)
+  void RegisterPI(PIControllerManagerStandardized* service) {
     piManager = service;
-    if (service) std::cout << "✅ PI Service registered" << std::endl;
+    if (service) std::cout << "✅ PI Controller Service registered" << std::endl;
   }
 
-  void RegisterACS(ACSControllerManager* service) {
+  void RegisterACS(ACSControllerManagerStandardized* service) {
     acsManager = service;
-    if (service) std::cout << "✅ ACS Service registered" << std::endl;
+    if (service) std::cout << "✅ ACS Controller Service registered" << std::endl;
   }
 
+  // All original services (backward compatibility)
   void RegisterCamera(CameraManager* service) {
     cameraManager = service;
     if (service) std::cout << "✅ Camera Service registered" << std::endl;
@@ -68,11 +82,6 @@ public:
     if (service) std::cout << "✅ Pneumatic Service registered" << std::endl;
   }
 
-  void RegisterMotionConfig(MotionConfigManager* service) {
-    motionConfigManager = service;
-    if (service) std::cout << "✅ Motion Config Service registered" << std::endl;
-  }
-
   void RegisterMachineOps(MachineOperations* service) {
     machineOperations = service;
     if (service) std::cout << "✅ Machine Operations Service registered" << std::endl;
@@ -82,20 +91,41 @@ public:
   // SERVICE ACCESS (used everywhere, zero parameters needed!)
   // ========================================================================
 
-  PIControllerManager* PI() const { return piManager; }
-  ACSControllerManager* ACS() const { return acsManager; }
+  // Core services with enhanced error checking
+  ConfigManager* Config() const {
+    if (!configManager) {
+      std::cout << "❌ ConfigManager not available" << std::endl;
+    }
+    return configManager;
+  }
+
+  PIControllerManagerStandardized* PI() const {
+    if (!piManager) {
+      std::cout << "❌ PI Controller Manager not available" << std::endl;
+    }
+    return piManager;
+  }
+
+  ACSControllerManagerStandardized* ACS() const {
+    if (!acsManager) {
+      std::cout << "❌ ACS Controller Manager not available" << std::endl;
+    }
+    return acsManager;
+  }
+
+  // All original service accessors (no error checking for backward compatibility)
   CameraManager* Camera() const { return cameraManager; }
   EziIOManager* IO() const { return ioManager; }
   CLD101xManager* CLD101x() const { return cldManager; }
   Keithley2400Manager* SMU() const { return smuManager; }
   PneumaticManager* Pneumatic() const { return pneumaticManager; }
-  MotionConfigManager* MotionConfig() const { return motionConfigManager; }
   MachineOperations* MachineOps() const { return machineOperations; }
 
   // ========================================================================
-  // AVAILABILITY CHECKS (for UI availability logic)
+  // AVAILABILITY CHECKS (for conditional logic)
   // ========================================================================
 
+  bool HasConfig() const { return configManager != nullptr; }
   bool HasPI() const { return piManager != nullptr; }
   bool HasACS() const { return acsManager != nullptr; }
   bool HasCamera() const { return cameraManager != nullptr; }
@@ -103,7 +133,6 @@ public:
   bool HasCLD101x() const { return cldManager != nullptr; }
   bool HasSMU() const { return smuManager != nullptr; }
   bool HasPneumatic() const { return pneumaticManager != nullptr; }
-  bool HasMotionConfig() const { return motionConfigManager != nullptr; }
   bool HasMachineOps() const { return machineOperations != nullptr; }
 
   // ========================================================================
@@ -112,6 +141,7 @@ public:
 
   // Clear all services (for cleanup)
   void ClearAll() {
+    configManager = nullptr;
     piManager = nullptr;
     acsManager = nullptr;
     cameraManager = nullptr;
@@ -119,7 +149,6 @@ public:
     cldManager = nullptr;
     smuManager = nullptr;
     pneumaticManager = nullptr;
-    motionConfigManager = nullptr;
     machineOperations = nullptr;
     std::cout << "🔄 All services cleared" << std::endl;
   }
@@ -127,6 +156,7 @@ public:
   // Get service status summary
   int GetAvailableServiceCount() const {
     int count = 0;
+    if (HasConfig()) count++;
     if (HasPI()) count++;
     if (HasACS()) count++;
     if (HasCamera()) count++;
@@ -134,36 +164,65 @@ public:
     if (HasCLD101x()) count++;
     if (HasSMU()) count++;
     if (HasPneumatic()) count++;
-    if (HasMotionConfig()) count++;
     if (HasMachineOps()) count++;
     return count;
   }
+
+  // Print status for debugging
+  void PrintStatus() const {
+    std::cout << "=== Service Status ===" << std::endl;
+    std::cout << "ConfigManager: " << (HasConfig() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "PI Manager: " << (HasPI() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "ACS Manager: " << (HasACS() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "Camera: " << (HasCamera() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "IO: " << (HasIO() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "CLD101x: " << (HasCLD101x() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "SMU: " << (HasSMU() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "Pneumatic: " << (HasPneumatic() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "Machine Ops: " << (HasMachineOps() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "Total Services: " << GetAvailableServiceCount() << std::endl;
+  }
+
+  // ========================================================================
+  // BATCH OPERATIONS (convenience methods) - DECLARATIONS ONLY
+  // ========================================================================
+
+  // Initialize all available motion controllers
+  bool InitializeAllMotion();
+
+  // Connect all available motion controllers  
+  bool ConnectAllMotion();
+
+  // Disconnect all motion controllers
+  void DisconnectAllMotion();
 
 private:
   // Private constructor for singleton
   ServiceLocator() = default;
 
-  // All services as simple pointers (not owned)
-  PIControllerManager* piManager = nullptr;
-  ACSControllerManager* acsManager = nullptr;
-  CameraManager* cameraManager = nullptr;
-  EziIOManager* ioManager = nullptr;
-  CLD101xManager* cldManager = nullptr;
-  Keithley2400Manager* smuManager = nullptr;
-  PneumaticManager* pneumaticManager = nullptr;
-  MotionConfigManager* motionConfigManager = nullptr;
-  MachineOperations* machineOperations = nullptr;
+  // All services as static pointers (not owned by ServiceLocator)
+  static ConfigManager* configManager;
+  static PIControllerManagerStandardized* piManager;
+  static ACSControllerManagerStandardized* acsManager;
+  static CameraManager* cameraManager;
+  static EziIOManager* ioManager;
+  static CLD101xManager* cldManager;
+  static Keithley2400Manager* smuManager;
+  static PneumaticManager* pneumaticManager;
+  static MachineOperations* machineOperations;
 };
 
 // ========================================================================
-// CONVENIENCE MACROS (optional, for even cleaner syntax)
+// CONVENIENCE MACROS (optional, for cleaner syntax)
 // ========================================================================
 
 #define Services ServiceLocator::Get()
 
 // Example usage:
+// auto config = Services.Config();
 // auto pi = Services.PI();
-// if (Services.HasCamera()) { auto cam = Services.Camera(); }
+// auto camera = Services.Camera();
+// if (Services.HasACS()) { auto acs = Services.ACS(); }
 
 // ========================================================================
 // SAFER SERVICE ACCESS WITH AUTOMATIC NULL CHECKS
@@ -196,10 +255,18 @@ private:
   T* service_;
 };
 
-// Safe accessors
+// Safe accessors for all services
 namespace SafeServices {
-  inline SafeService<PIControllerManager> PI() {
-    return SafeService<PIControllerManager>(Services.PI());
+  inline SafeService<ConfigManager> Config() {
+    return SafeService<ConfigManager>(Services.Config());
+  }
+
+  inline SafeService<PIControllerManagerStandardized> PI() {
+    return SafeService<PIControllerManagerStandardized>(Services.PI());
+  }
+
+  inline SafeService<ACSControllerManagerStandardized> ACS() {
+    return SafeService<ACSControllerManagerStandardized>(Services.ACS());
   }
 
   inline SafeService<CameraManager> Camera() {
@@ -210,25 +277,47 @@ namespace SafeServices {
     return SafeService<EziIOManager>(Services.IO());
   }
 
-  // Add more as needed...
+  inline SafeService<CLD101xManager> CLD101x() {
+    return SafeService<CLD101xManager>(Services.CLD101x());
+  }
+
+  inline SafeService<Keithley2400Manager> SMU() {
+    return SafeService<Keithley2400Manager>(Services.SMU());
+  }
+
+  inline SafeService<PneumaticManager> Pneumatic() {
+    return SafeService<PneumaticManager>(Services.Pneumatic());
+  }
+
+  inline SafeService<MachineOperations> MachineOps() {
+    return SafeService<MachineOperations>(Services.MachineOps());
+  }
 }
 
-// Usage examples:
+// ========================================================================
+// USAGE EXAMPLES
+// ========================================================================
+
 /*
 // Method 1: Simple access with manual null check
-auto pi = Services.PI();
-if (pi) {
-    pi->MoveAxis(0, 10.0);
+auto config = Services.Config();
+if (config) {
+    config->LoadMotionConfigs();
 }
 
 // Method 2: Safe service with automatic checking
 auto camera = SafeServices::Camera();
 if (camera) {
-    camera->CaptureImage();
+    camera->StartCapture();
 }
 
 // Method 3: Execute if available
-SafeServices::PI().IfAvailable([](auto* pi) {
-    pi->HomeAllAxes();
+SafeServices::Config().IfAvailable([](auto* config) {
+    config->SetConfigDirectory("config");
 });
+
+// Method 4: All original services still work exactly the same
+auto io = Services.IO();
+auto smu = Services.SMU();
+auto pneumatic = Services.Pneumatic();
 */

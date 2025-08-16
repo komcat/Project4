@@ -10,7 +10,7 @@
 class ConfigService : public IUIService {
 public:
   void RenderUI() override {
-    auto config = Services.MotionConfig();
+    auto config = Services.Config();
     ImGui::Text(config ? "🔧 Configuration: Config loaded" : "🔧 Configuration: No config");
   }
   std::string GetServiceName() const override { return "system_config"; }

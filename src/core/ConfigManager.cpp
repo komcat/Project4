@@ -208,8 +208,8 @@ std::string ConfigManager::GetFullPath(const std::string& filename) const {
 
 // Logging helpers
 void ConfigManager::LogInfo(const std::string& message) const {
-  if (m_logger) {
-    m_logger->LogInfo("[ConfigManager] " + message);
+  if (m_logger) {    
+		std::cout << "[ConfigManager INFO] " + message << std::endl;
   }
   else {
     std::cout << "[ConfigManager INFO] " + message << std::endl;
@@ -217,8 +217,8 @@ void ConfigManager::LogInfo(const std::string& message) const {
 }
 
 void ConfigManager::LogError(const std::string& message) const {
-  if (m_logger) {
-    m_logger->LogError("[ConfigManager] " + message);
+  if (m_logger) {    
+		std::cout << "[ConfigManager ERROR] " + message << std::endl;
   }
   else {
     std::cerr << "[ConfigManager ERROR] " + message << std::endl;
@@ -227,7 +227,8 @@ void ConfigManager::LogError(const std::string& message) const {
 
 void ConfigManager::LogWarning(const std::string& message) const {
   if (m_logger) {
-    m_logger->LogWarning("[ConfigManager] " + message);
+    
+		std::cout << "[ConfigManager WARNING] " + message << std::endl;
   }
   else {
     std::cout << "[ConfigManager WARNING] " + message << std::endl;

@@ -1,14 +1,15 @@
-﻿// Application.cpp - Simplified Structure with UniversalServices Integration
-// Keep it conceptually simple: Initialize -> Run Loop -> Cleanup
+﻿// Application.cpp - Updated to use ServiceLocator with Zero Dependencies
+// ConfigManager is now a service, not a direct dependency
 
 #include "Application.h"
 #include "../utils/Logger.h"
 #include "../utils/Unicode.h"
 #include "backends/imgui_impl_sdl2.h"
 #include "backends/imgui_impl_opengl3.h"
-#include "../devices/UniversalServices.h"
+#include "../core/ServiceLocator.h"  // Use ServiceLocator instead of UniversalServices
 #include "../devices/motions/PIControllerManagerStandardized.h"
 #include "../devices/motions/ACSControllerManagerStandardized.h"
+#include "../core/ConfigManager.h"     // For ConfigManager
 #include "../core/ConfigRegistry.h"
 #include "../utils/LoggerAdapter.h"
 #include <GL/gl.h>
@@ -40,8 +41,8 @@ void Application::Run() {
   // **STEP 1**: Render home page first
   RenderInitialHomePage();
 
-  // **STEP 2**: AFTER home page is shown, initialize Motion managers
-  InitializeMotionManagers();
+  // **STEP 2**: AFTER home page is shown, initialize services (ConfigManager + Motion managers)
+  InitializeServices();
 
   // **STEP 3**: Main loop
   while (running && !ShouldClose()) {
@@ -68,19 +69,27 @@ void Application::RenderInitialHomePage() {
   Logger::Success(L"Home page rendered");
 }
 
-void Application::InitializeMotionManagers() {
-  Logger::Info(L"Initializing Motion managers after UI render...");
+void Application::InitializeServices() {
+  Logger::Info(L"Initializing Services with zero dependencies...");
 
   try {
-    // === SETUP CONFIGURATION SYSTEM (following your test pattern) ===
+    // ========================================================================
+    // STEP 1: Create and Register ConfigManager as Service
+    // ========================================================================
+    Logger::Info(L"Creating ConfigManager service...");
+
     m_loggerAdapter = std::make_unique<LoggerAdapter>();
 
-    // Get ConfigManager singleton (don't store it, just configure it)
+    // ConfigManager is a singleton, but we register it as a service for zero dependencies
     auto& configManager = ConfigManager::Instance();
     configManager.SetLogger(m_loggerAdapter.get());
     configManager.SetConfigDirectory("config");
 
-    // Load motion configurations
+    // Register ConfigManager as a service
+    ServiceLocator::Get().RegisterConfigManager(&configManager);
+    Logger::Success(L"✅ ConfigManager registered as service");
+
+    // Load configurations through the service
     ConfigLogger::ConfigTestStart();
     if (ConfigRegistry::LoadMotionConfigs()) {
       ConfigLogger::ConfigLoaded("Motion configurations");
@@ -89,14 +98,24 @@ void Application::InitializeMotionManagers() {
       ConfigLogger::ConfigError("Motion configurations", "Failed to load some configs");
     }
 
-    // === CREATE MOTION MANAGERS (with try-catch for safety) ===
-    Logger::Info(L"Creating standardized motion managers...");
+    // ========================================================================
+    // STEP 2: Create Motion Managers (they get ConfigManager via ServiceLocator)
+    // ========================================================================
+    Logger::Info(L"Creating motion managers...");
 
     try {
-      // Create PI Controller Manager in HARDWARE MODE
+      // Create PI Controller Manager - it will get ConfigManager from ServiceLocator
       Logger::Info(L"Creating PI Manager...");
-      m_piManager = std::make_unique<PIControllerManagerStandardized>(configManager, true); // true = hardware mode
-      Logger::Success(L"✅ PI Manager created");
+
+      // PI Manager gets ConfigManager via ServiceLocator (zero dependencies!)
+      m_piManager = std::make_unique<PIControllerManagerStandardized>(
+        *ServiceLocator::Get().Config(),  // Get ConfigManager from services
+        true  // hardware mode
+      );
+
+      // Register PI Manager as service
+      ServiceLocator::Get().RegisterPI(m_piManager.get());
+      Logger::Success(L"✅ PI Manager created and registered");
     }
     catch (const std::exception& e) {
       Logger::Error(L"Failed to create PI Manager: " +
@@ -105,10 +124,17 @@ void Application::InitializeMotionManagers() {
     }
 
     try {
-      // Create ACS Controller Manager  
+      // Create ACS Controller Manager - it will get ConfigManager from ServiceLocator
       Logger::Info(L"Creating ACS Manager...");
-      m_acsManager = std::make_unique<ACSControllerManagerStandardized>(configManager);
-      Logger::Success(L"✅ ACS Manager created");
+
+      // ACS Manager gets ConfigManager via ServiceLocator (zero dependencies!)
+      m_acsManager = std::make_unique<ACSControllerManagerStandardized>(
+        *ServiceLocator::Get().Config()  // Get ConfigManager from services
+      );
+
+      // Register ACS Manager as service
+      ServiceLocator::Get().RegisterACS(m_acsManager.get());
+      Logger::Success(L"✅ ACS Manager created and registered");
     }
     catch (const std::exception& e) {
       Logger::Error(L"Failed to create ACS Manager: " +
@@ -116,102 +142,38 @@ void Application::InitializeMotionManagers() {
       // Continue without ACS manager
     }
 
-    // === REGISTER WITH UNIVERSAL SERVICES (only if managers exist) ===
-    if (m_piManager) {
-      Services::RegisterPIManager(m_piManager.get());
+    // ========================================================================
+    // STEP 3: Print Service Status
+    // ========================================================================
+    Logger::Info(L"📊 Service Registration Complete:");
+    ServiceLocator::Get().PrintStatus();
+
+    // ========================================================================
+    // STEP 4: Initialize All Services
+    // ========================================================================
+    Logger::Info(L"Initializing all motion services...");
+
+    if (ServiceLocator::Get().InitializeAllMotion()) {
+      Logger::Success(L"✅ All motion services initialized");
     }
-    if (m_acsManager) {
-      Services::RegisterACSManager(m_acsManager.get());
-    }
-
-    Logger::Info(L"📊 Services Status:");
-    Logger::Info(L"  PI Manager: " + std::wstring(Services::HasPIManager() ? L"REGISTERED" : L"NOT REGISTERED"));
-    Logger::Info(L"  ACS Manager: " + std::wstring(Services::HasACSManager() ? L"REGISTERED" : L"NOT REGISTERED"));
-
-    // === INITIALIZE MANAGERS ===
-    Logger::Info(L"Initializing managers...");
-
-    if (m_piManager) {
-      try {
-        if (m_piManager->Initialize()) {
-          ConfigLogger::ConfigLoaded("PI manager initialized successfully");
-        }
-        else {
-          ConfigLogger::ConfigError("PI Manager", "Failed to initialize");
-        }
-      }
-      catch (const std::exception& e) {
-        Logger::Error(L"PI Manager initialization exception: " +
-          std::wstring(e.what(), e.what() + strlen(e.what())));
-      }
+    else {
+      Logger::Warning(L"⚠️ Some motion services failed to initialize");
     }
 
-    if (m_acsManager) {
-      try {
-        if (m_acsManager->Initialize()) {
-          ConfigLogger::ConfigLoaded("ACS manager initialized successfully");
-        }
-        else {
-          ConfigLogger::ConfigError("ACS Manager", "Failed to initialize");
-        }
-      }
-      catch (const std::exception& e) {
-        Logger::Error(L"ACS Manager initialization exception: " +
-          std::wstring(e.what(), e.what() + strlen(e.what())));
-      }
-    }
-
-    // === CONNECT TO HARDWARE IN BACKGROUND THREAD ===
-    // Only start hardware thread if we have at least one manager
-    if (m_piManager || m_acsManager) {
+    // ========================================================================
+    // STEP 5: Connect to Hardware in Background Thread
+    // ========================================================================
+    if (ServiceLocator::Get().HasPI() || ServiceLocator::Get().HasACS()) {
       std::thread hardwareThread([this]() {
         Logger::Info(L"🔗 Connecting to motion hardware in background...");
 
-        bool piConnected = false;
-        bool acsConnected = false;
+        bool connected = ServiceLocator::Get().ConnectAllMotion();
 
-        // Connect PI Controllers
-        if (m_piManager) {
-          try {
-            Logger::Info(L"Connecting PI controllers...");
-            piConnected = m_piManager->ConnectAll();
-            if (piConnected) {
-              Logger::Success(L"✅ PI controllers connected");
-            }
-            else {
-              Logger::Warning(L"⚠️ Some PI controllers failed to connect");
-            }
-          }
-          catch (const std::exception& e) {
-            Logger::Error(L"PI connection exception: " +
-              std::wstring(e.what(), e.what() + strlen(e.what())));
-          }
-        }
-
-        // Connect ACS Controllers
-        if (m_acsManager) {
-          try {
-            Logger::Info(L"Connecting ACS controllers...");
-            acsConnected = m_acsManager->ConnectAll();
-            if (acsConnected) {
-              Logger::Success(L"✅ ACS controllers connected");
-            }
-            else {
-              Logger::Warning(L"⚠️ Some ACS controllers failed to connect");
-            }
-          }
-          catch (const std::exception& e) {
-            Logger::Error(L"ACS connection exception: " +
-              std::wstring(e.what(), e.what() + strlen(e.what())));
-          }
-        }
-
-        // Final status
-        if (piConnected || acsConnected) {
-          Logger::Success(L"🎉 Motion hardware initialization complete!");
+        if (connected) {
+          Logger::Success(L"🎉 Motion hardware connection complete!");
         }
         else {
-          Logger::Warning(L"⚠️ Motion system running in degraded mode (no hardware connected)");
+          Logger::Warning(L"⚠️ Motion system running in degraded mode (some hardware failed to connect)");
         }
       });
 
@@ -219,15 +181,15 @@ void Application::InitializeMotionManagers() {
       hardwareThread.detach();
     }
 
-    Logger::Success(L"Motion manager initialization started (hardware connecting in background)");
+    Logger::Success(L"Service initialization complete (hardware connecting in background)");
 
   }
   catch (const std::exception& e) {
-    Logger::Error(L"Critical error in motion manager initialization: " +
+    Logger::Error(L"Critical error in service initialization: " +
       std::wstring(e.what(), e.what() + strlen(e.what())));
   }
   catch (...) {
-    Logger::Error(L"Unknown exception in motion manager initialization");
+    Logger::Error(L"Unknown exception in service initialization");
   }
 }
 
@@ -428,30 +390,18 @@ void Application::RenderWindow(Window& window, ImGuiContext* context, UIRenderer
 void Application::Cleanup() {
   Logger::Info(L"Starting application cleanup");
 
-  // === CLEANUP MOTION MANAGERS FIRST (following your test pattern) ===
-  if (m_piManager || m_acsManager) {
-    Logger::Info(L"🛑 Stopping all motion devices before disconnection...");
+  // ========================================================================
+  // CLEANUP MOTION SERVICES (using ServiceLocator)
+  // ========================================================================
+  if (ServiceLocator::Get().HasPI() || ServiceLocator::Get().HasACS()) {
+    Logger::Info(L"🛑 Stopping and disconnecting motion services...");
 
-    // Stop all devices safely
-    if (m_piManager) {
-      m_piManager->StopAllDevices();
-    }
+    // Use ServiceLocator batch operations for clean shutdown
+    ServiceLocator::Get().DisconnectAllMotion();
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-    Logger::Info(L"🔌 Disconnecting motion devices...");
-
-    // Disconnect all devices
-    if (m_piManager) {
-      m_piManager->DisconnectAll();
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    }
-
-    if (m_acsManager) {
-      m_acsManager->DisconnectAll();
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    }
-
-    Logger::Info(L"🧹 Clearing universal services...");
-    Services::Clear();
+    Logger::Info(L"🧹 Clearing all services...");
+    ServiceLocator::Get().ClearAll();
 
     // Clear manager pointers before destruction (critical for safe cleanup)
     Logger::Info(L"🔧 Releasing motion managers...");
@@ -459,16 +409,20 @@ void Application::Cleanup() {
     m_acsManager.reset();
 
     // Clear config manager logger reference (ConfigManager is singleton)
-    auto& configManager = ConfigManager::Instance();
-    configManager.SetLogger(nullptr);
+    if (ServiceLocator::Get().HasConfig()) {
+      auto& configManager = ConfigManager::Instance();
+      configManager.SetLogger(nullptr);
+    }
 
     // Clear logger adapter
     m_loggerAdapter.reset();
 
-    Logger::Success(L"Motion managers cleaned up safely");
+    Logger::Success(L"Motion services cleaned up safely");
   }
 
-  // === CLEANUP IMGUI CONTEXTS ===
+  // ========================================================================
+  // CLEANUP IMGUI CONTEXTS
+  // ========================================================================
   if (imgui_context1) {
     if (window1) window1->MakeContextCurrent();
     ImGui::SetCurrentContext(imgui_context1);
@@ -487,11 +441,15 @@ void Application::Cleanup() {
     imgui_context2 = nullptr;
   }
 
-  // === CLEANUP WINDOWS ===
+  // ========================================================================
+  // CLEANUP WINDOWS
+  // ========================================================================
   window1.reset();
   window2.reset();
 
-  // === CLEANUP UI RENDERERS ===
+  // ========================================================================
+  // CLEANUP UI RENDERERS
+  // ========================================================================
   uiRenderer1.reset();
   uiRenderer2.reset();
 
