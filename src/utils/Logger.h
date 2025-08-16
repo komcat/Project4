@@ -23,3 +23,14 @@ private:
   static std::mutex log_mutex;
   static std::wstring GetLevelPrefix(Level level);
 };
+
+/**
+ * Simple logger interface for ConfigManager
+ */
+class ILogger {
+public:
+  virtual ~ILogger() = default;
+  virtual void LogInfo(const std::string& message) = 0;
+  virtual void LogError(const std::string& message) = 0;
+  virtual void LogWarning(const std::string& message) = 0;
+};
