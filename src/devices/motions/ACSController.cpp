@@ -29,13 +29,15 @@ ACSController::ACSController()
 ACSController::~ACSController() {
   std::cout << "ACSController: Shutting down controller" << std::endl;
 
-  // Stop communication thread
+  // Stop communication thread FIRST (this is the most important fix)
   StopCommunicationThread();
 
-  // Disconnect if still connected
-  if (m_isConnected) {
+  // Then disconnect if still connected
+  if (m_isConnected.load()) {
     Disconnect();
   }
+
+  std::cout << "ACSController: Destructor complete" << std::endl;
 }
 
 void ACSController::StartCommunicationThread() {
@@ -47,14 +49,16 @@ void ACSController::StartCommunicationThread() {
   }
 }
 
+
 void ACSController::StopCommunicationThread() {
-  if (m_threadRunning) {
-    {
-      std::lock_guard<std::mutex> lock(m_mutex);
-      m_terminateThread.store(true);
-    }
+  if (m_threadRunning.load()) {
+    // Signal termination - NO MUTEX NEEDED (using atomic)
+    m_terminateThread.store(true);
+
+    // Wake up the thread if it's sleeping - NO MUTEX NEEDED
     m_condVar.notify_all();
 
+    // Join the thread - NO MUTEX NEEDED
     if (m_communicationThread.joinable()) {
       m_communicationThread.join();
     }
@@ -64,99 +68,75 @@ void ACSController::StopCommunicationThread() {
   }
 }
 
+
+// === FIXED COMMUNICATION THREAD FUNCTION ===
+
 void ACSController::CommunicationThreadFunc() {
-  // Set update interval to 200ms (5 Hz)
+  // Set update interval to 200ms (5 Hz) - slower than PI for less resource usage
   const auto updateInterval = std::chrono::milliseconds(200);
+  auto nextUpdate = std::chrono::steady_clock::now();
 
-  // Frame counter for less frequent updates
-  int frameCounter = 0;
+  std::cout << "ACSController: Communication thread started" << std::endl;
 
-  // Initialization of last update timestamps
-  m_lastStatusUpdate = std::chrono::steady_clock::now();
-  m_lastPositionUpdate = m_lastStatusUpdate;
-
-  while (!m_terminateThread) {
+  while (!m_terminateThread.load()) {
     auto cycleStartTime = std::chrono::steady_clock::now();
 
-    // Process any pending motor commands first for responsiveness
-    {
-      std::lock_guard<std::mutex> lock(m_commandMutex);
-      for (auto& cmd : m_commandQueue) {
-        if (!cmd.executed) {
-          // Execute the command
-          MoveRelative(cmd.axis, cmd.distance, false);
-          cmd.executed = true;
-        }
+    if (m_isConnected.load()) {
+      try {
+        // Update positions (use short-lived locks)
+        UpdatePositions();
+
+        // Update motor status (short-lived locks)  
+        UpdateMotorStatus();
+
+        // Process any pending commands (short-lived locks)
+        ProcessCommandQueue();
+
       }
-
-      // Remove executed commands
-      m_commandQueue.erase(
-        std::remove_if(m_commandQueue.begin(), m_commandQueue.end(),
-          [](const MotorCommand& cmd) { return cmd.executed; }),
-        m_commandQueue.end());
-    }
-
-    // Only update if connected
-    if (m_isConnected) {
-      frameCounter++;
-
-      // Always update positions
-      std::map<std::string, double> positions;
-      if (GetPositions(positions)) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_axisPositions = positions;
-        m_lastPositionUpdate = std::chrono::steady_clock::now();
-      }
-
-      // Update other status less frequently (every 3rd frame, ~1.67Hz)
-      if (frameCounter % 3 == 0) {
-        // Update axis motion status for X, Y, Z only
-        for (const auto& axis : { "X", "Y", "Z" }) {
-          bool moving = IsMoving(axis);
-          std::lock_guard<std::mutex> lock(m_mutex);
-          m_axisMoving[axis] = moving;
-        }
-
-        // Update servo status for X, Y, Z only
-        for (const auto& axis : { "X", "Y", "Z" }) {
-          bool enabled;
-          if (IsServoEnabled(axis, enabled)) {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_axisServoEnabled[axis] = enabled;
-          }
-        }
-
-        m_lastStatusUpdate = std::chrono::steady_clock::now();
+      catch (const std::exception& e) {
+        std::cout << "ACSController: Exception in communication thread: " << e.what() << std::endl;
       }
     }
 
-    // Calculate how long to sleep to maintain consistent update rate
+    // Calculate sleep time to maintain consistent update rate
     auto cycleEndTime = std::chrono::steady_clock::now();
     auto cycleDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
       cycleEndTime - cycleStartTime);
     auto sleepTime = updateInterval - cycleDuration;
 
-    // Wait for next update or termination
-    std::unique_lock<std::mutex> lock(m_mutex);
+    // CRITICAL: Simple sleep - NO MUTEX, just check atomic termination flag
     if (sleepTime.count() > 0) {
-      m_condVar.wait_for(lock, sleepTime, [this]() { return m_terminateThread.load(); });
+      std::this_thread::sleep_for(sleepTime);
     }
     else {
-      // No sleep needed if we're already behind schedule, but yield to let other threads run
-      lock.unlock();
+      // Yield if we're behind schedule
       std::this_thread::yield();
     }
+
+    // Check termination flag more frequently during sleep
+    if (m_terminateThread.load()) {
+      break;
+    }
   }
+
+  std::cout << "ACSController: Communication thread exiting cleanly" << std::endl;
 }
 
 // Helper method to process the command queue
 void ACSController::ProcessCommandQueue() {
   std::lock_guard<std::mutex> lock(m_commandMutex);
+
   for (auto& cmd : m_commandQueue) {
     if (!cmd.executed) {
-      // Execute the command
-      MoveRelative(cmd.axis, cmd.distance, false);
-      cmd.executed = true;
+      // Execute the command (this should be non-blocking)
+      try {
+        MoveRelative(cmd.axis, cmd.distance, false);
+        cmd.executed = true;
+      }
+      catch (const std::exception& e) {
+        std::cout << "ACSController: Exception executing command: " << e.what() << std::endl;
+        cmd.executed = true; // Mark as executed to remove it
+      }
     }
   }
 
@@ -167,9 +147,11 @@ void ACSController::ProcessCommandQueue() {
     m_commandQueue.end());
 }
 
+
 // Helper method to update positions using batch query
+
 void ACSController::UpdatePositions() {
-  if (!m_isConnected) return;
+  if (!m_isConnected.load()) return;
 
   std::map<std::string, double> positions;
   if (GetPositions(positions)) {
@@ -181,25 +163,25 @@ void ACSController::UpdatePositions() {
 
 // Helper method to update motor status (moving, servo state)
 void ACSController::UpdateMotorStatus() {
-  if (!m_isConnected) return;
+  if (!m_isConnected.load()) return;
 
-  auto now = std::chrono::steady_clock::now();
-
-  // Use batch queries if possible, otherwise query each axis
+  // Update servo status for each axis
   for (const auto& axis : m_availableAxes) {
-    int axisIndex = GetAxisIndex(axis);
-    if (axisIndex >= 0) {
-      int state = 0;
-      if (acsc_GetMotorState(m_controllerId, axisIndex, &state, NULL)) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_axisMoving[axis] = (state & ACSC_MST_MOVE) != 0;
-        m_axisServoEnabled[axis] = (state & ACSC_MST_ENABLE) != 0;
-      }
+    bool enabled;
+    if (IsServoEnabled(axis, enabled)) {
+      std::lock_guard<std::mutex> lock(m_mutex);
+      m_axisServoEnabled[axis] = enabled;
     }
   }
 
-  m_lastStatusUpdate = now;
+  // Update motion status
+  for (const auto& axis : m_availableAxes) {
+    bool moving = IsMoving(axis);
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_axisMoving[axis] = moving;
+  }
 }
+
 
 // Helper to convert string axis identifiers to ACS axis indices
 int ACSController::GetAxisIndex(const std::string& axis) {

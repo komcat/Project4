@@ -34,16 +34,20 @@ PIController::PIController()
 	StartCommunicationThread();
 }
 
+// === FIXED DESTRUCTOR ===
+
 PIController::~PIController() {
 	std::cout << "PIController: Shutting down controller" << std::endl;
 
-	// CRITICAL: Stop communication thread FIRST without holding any locks
+	// Stop communication thread FIRST (this is the most important fix)
 	StopCommunicationThread();
 
-	// THEN disconnect (after thread is safely stopped)
-	if (m_isConnected) {
+	// Then disconnect if still connected
+	if (m_isConnected.load()) {
 		Disconnect();
 	}
+
+	std::cout << "PIController: Destructor complete" << std::endl;
 }
 
 bool PIController::GetDeviceIdentification(std::string& manufacturerInfo) {
@@ -83,15 +87,17 @@ void PIController::StartCommunicationThread() {
 }
 
 
+// === FIXED COMMUNICATION THREAD MANAGEMENT ===
+
 void PIController::StopCommunicationThread() {
 	if (m_threadRunning.load()) {
-		// Signal termination using atomic - NO MUTEX NEEDED
+		// Signal termination - NO MUTEX NEEDED (using atomic)
 		m_terminateThread.store(true);
 
-		// Wake up the thread if it's sleeping
+		// Wake up the thread if it's sleeping - NO MUTEX NEEDED
 		m_condVar.notify_all();
 
-		// Join the thread
+		// Join the thread - NO MUTEX NEEDED
 		if (m_communicationThread.joinable()) {
 			m_communicationThread.join();
 		}
@@ -104,7 +110,7 @@ void PIController::StopCommunicationThread() {
 
 
 
-// === PIController.cpp - REWRITE COMMUNICATION THREAD ===
+// === FIXED COMMUNICATION THREAD FUNCTION ===
 
 void PIController::CommunicationThreadFunc() {
 	const auto updateInterval = std::chrono::milliseconds(50);
@@ -116,17 +122,15 @@ void PIController::CommunicationThreadFunc() {
 		if (m_isConnected.load()) {
 			frameCounter++;
 
-			// Update positions (use short-lived locks)
-			std::map<std::string, double> positions;
-			if (GetPositions(positions)) {
-				{
+			try {
+				// Update positions (use short-lived locks)
+				std::map<std::string, double> positions;
+				if (GetPositions(positions)) {
 					std::lock_guard<std::mutex> lock(m_mutex);
 					m_axisPositions = positions;
 				}
-			}
 
-			// Update motion status (short-lived lock)
-			{
+				// Update motion status (short-lived lock)
 				const char* allAxes = "X Y Z U V W";
 				BOOL isMovingArray[6] = { FALSE, FALSE, FALSE, FALSE, FALSE, FALSE };
 
@@ -137,31 +141,37 @@ void PIController::CommunicationThreadFunc() {
 						m_axisMoving[axisNames[i]] = (isMovingArray[i] == TRUE);
 					}
 				}
-			}
 
-			// Update servo status less frequently (short-lived locks)
-			if (frameCounter % 3 == 0) {
-				for (const auto& axis : m_availableAxes) {
-					bool enabled;
-					if (IsServoEnabled(axis, enabled)) {
-						std::lock_guard<std::mutex> lock(m_mutex);
-						m_axisServoEnabled[axis] = enabled;
+				// Update servo status less frequently (short-lived locks)
+				if (frameCounter % 3 == 0) {
+					for (const auto& axis : m_availableAxes) {
+						bool enabled;
+						if (IsServoEnabled(axis, enabled)) {
+							std::lock_guard<std::mutex> lock(m_mutex);
+							m_axisServoEnabled[axis] = enabled;
+						}
 					}
 				}
-			}
 
-			// Update analog readings (short-lived locks)
-			if (m_enableAnalogReading.load() && frameCounter % 2 == 0) {
-				UpdateAnalogReadings();
+				// Update analog readings (short-lived locks)
+				if (m_enableAnalogReading.load() && frameCounter % 2 == 0) {
+					UpdateAnalogReadings();
+				}
+
+			}
+			catch (const std::exception& e) {
+				std::cout << "PIController: Exception in communication thread: " << e.what() << std::endl;
 			}
 		}
 
-		// CRITICAL: Simple sleep with termination check - NO MUTEX
+		// CRITICAL: Simple sleep - NO MUTEX, just check atomic termination flag
 		std::this_thread::sleep_for(updateInterval);
 	}
 
 	std::cout << "PIController: Communication thread exiting cleanly" << std::endl;
 }
+
+
 
 // NEW: Update analog readings in communication thread
 void PIController::UpdateAnalogReadings() {
