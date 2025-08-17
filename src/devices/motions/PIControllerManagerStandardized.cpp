@@ -50,6 +50,9 @@ bool PIControllerManagerStandardized::Initialize() {
 	return true;
 }
 
+
+// === ALTERNATIVE: SAFER CONNECT ALL METHOD ===
+
 bool PIControllerManagerStandardized::ConnectAll() {
 	if (!m_isInitialized) {
 		std::cout << "PIControllerManagerStandardized: Cannot connect - not initialized" << std::endl;
@@ -62,23 +65,45 @@ bool PIControllerManagerStandardized::ConnectAll() {
 	bool allSuccess = true;
 
 	if (m_hardwareMode) {
-		// Connect to real hardware - only enabled devices
-		std::lock_guard<std::mutex> lock(m_devicesMutex);
-		for (const auto& [deviceName, config] : m_deviceConfigs) {
-			if (config.isEnabled) {
-				std::cout << "  Connecting to enabled device: " << deviceName << std::endl;
-				if (!CreateRealDevice(deviceName)) {
-					std::cout << "  Failed to connect: " << deviceName << std::endl;
-					allSuccess = false;
+		// Get list of enabled devices ONCE outside the loop
+		std::vector<std::pair<std::string, PIDeviceConfig>> enabledDevices;
+		{
+			std::lock_guard<std::mutex> lock(m_devicesMutex);
+			for (const auto& [deviceName, config] : m_deviceConfigs) {
+				if (config.isEnabled) {
+					enabledDevices.push_back({ deviceName, config });
 				}
-				else {
-					std::cout << "  Successfully connected: " << deviceName << std::endl;
-				}
-			}
-			else {
-				std::cout << "  Skipping disabled device: " << deviceName << std::endl;
 			}
 		}
+
+		// Connect to enabled devices
+		for (const auto& [deviceName, config] : enabledDevices) {
+			std::cout << "  Connecting to enabled device: " << deviceName << std::endl;
+
+			// Add delay between connections to prevent resource conflicts
+			if (!enabledDevices.empty() && deviceName != enabledDevices[0].first) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
+
+			if (!CreateRealDevice(deviceName)) {
+				std::cout << "  Failed to connect: " << deviceName << std::endl;
+				allSuccess = false;
+			}
+			else {
+				std::cout << "  Successfully connected: " << deviceName << std::endl;
+			}
+		}
+
+		// Log skipped devices
+		{
+			std::lock_guard<std::mutex> lock(m_devicesMutex);
+			for (const auto& [deviceName, config] : m_deviceConfigs) {
+				if (!config.isEnabled) {
+					std::cout << "  Skipping disabled device: " << deviceName << std::endl;
+				}
+			}
+		}
+
 	}
 	else {
 		// Mock mode connections
@@ -584,10 +609,11 @@ void PIControllerManagerStandardized::CreateDefaultConfigs() {
 	}
 }
 
+
 bool PIControllerManagerStandardized::CreateRealDevice(const std::string& deviceName) {
 	PIDeviceConfig* config = GetMutableDeviceConfig(deviceName);
 	if (!config) {
-		std::cout << "  Device config not found: " << deviceName << std::endl;
+		std::cout << "  Configuration not found for device: " << deviceName << std::endl;
 		return false;
 	}
 
@@ -595,47 +621,52 @@ bool PIControllerManagerStandardized::CreateRealDevice(const std::string& device
 		std::cout << "  Creating PI device: " << deviceName
 			<< " @ " << config->ipAddress << ":" << config->port << std::endl;
 
-		// Create PIController instance
-		auto device = std::make_unique<PIController>();
+		// Create new PI controller
+		auto controller = std::make_unique<PIController>();
 
-		// Create MotionDevice for configuration
-		MotionDevice motionDevice = CreateMotionDeviceFromConfig(*config);
+		// Configure the controller BEFORE connecting
+		// This prevents the communication thread from starting prematurely
 
-		// Configure the device
-		if (!device->ConfigureFromDevice(motionDevice)) {
-			std::cout << "  Failed to configure PI device: " << deviceName << std::endl;
-			return false;
-		}
-
-		// Attempt connection
-		if (device->Connect(config->ipAddress, config->port)) {
+		// Connect to the hardware
+		if (controller->Connect(config->ipAddress, config->port)) {
 			std::cout << "  Successfully connected PI device: " << deviceName
-				<< " (Controller ID: " << device->GetControllerId() << ")" << std::endl;
+				<< " (Controller ID: " << controller->GetControllerId() << ")" << std::endl;
 
-			// Set window title for identification
-			device->SetWindowTitle("Controller: " + deviceName);
+			// Get analog channel count for information
+			int analogChannels = 0;
+			if (controller->GetAnalogChannelCount(analogChannels)) {
+				std::cout << "  Found " << analogChannels << " analog channels" << std::endl;
+			}
 
-			// Store the connected device
+			// CRITICAL: Store the device in the map IMMEDIATELY after successful connection
+			// This prevents it from being destroyed prematurely
 			{
 				std::lock_guard<std::mutex> lock(m_devicesMutex);
-				m_realDevices[deviceName] = std::move(device);
+				m_realDevices[deviceName] = std::move(controller);
 				config->isConnected = true;
 			}
 
 			return true;
+
 		}
 		else {
 			std::cout << "  Failed to connect to PI device at "
 				<< config->ipAddress << ":" << config->port << std::endl;
+
+			// Let the controller destructor handle cleanup
+			// Don't call Disconnect() here as it may cause issues
 			return false;
 		}
 
 	}
 	catch (const std::exception& e) {
-		std::cout << "  Exception creating PI device " << deviceName << ": " << e.what() << std::endl;
+		std::cout << "  Exception creating PI device " << deviceName
+			<< ": " << e.what() << std::endl;
 		return false;
 	}
 }
+
+
 
 void PIControllerManagerStandardized::DestroyRealDevice(const std::string& deviceName) {
 	// Note: mutex should already be locked by caller
