@@ -526,6 +526,115 @@ bool PIController::HomeAxis(const std::string& axis) {
 	return WaitForMotionCompletion(axis);
 }
 
+
+// PIController.cpp - Add this method implementation
+
+// Get current position for all axes into PositionStruct
+bool PIController::GetCurrentPosition(PositionStruct& position) {
+	if (!m_isConnected) {
+		std::cout << "PIController: Cannot get current position - not connected" << std::endl;
+		return false;
+	}
+
+	// Initialize position struct with zeros
+	position = PositionStruct();
+
+	// Try to get all positions at once using cached values first (most efficient)
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+
+		// Check if we have recent cached positions for all axes
+		bool allCached = true;
+		for (const auto& axis : { "X", "Y", "Z", "U", "V", "W" }) {
+			if (m_axisPositions.find(axis) == m_axisPositions.end()) {
+				allCached = false;
+				break;
+			}
+		}
+
+		if (allCached) {
+			// Use cached values (fastest path)
+			position.x = m_axisPositions["X"];
+			position.y = m_axisPositions["Y"];
+			position.z = m_axisPositions["Z"];
+			position.u = m_axisPositions["U"];
+			position.v = m_axisPositions["V"];
+			position.w = m_axisPositions["W"];
+
+			if (m_enableDebug) {
+				std::cout << "PIController: Using cached position values" << std::endl;
+			}
+			return true;
+		}
+	}
+
+	// If cached values are not available, query hardware directly
+	if (m_enableDebug) {
+		std::cout << "PIController: Querying hardware for current position" << std::endl;
+	}
+
+	// Method 1: Try batch query for all axes (most efficient)
+	const char* allAxes = "X Y Z U V W";
+	double positions[6] = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+
+	if (PI_qPOS(m_controllerId, allAxes, positions)) {
+		// Success - fill PositionStruct
+		position.x = positions[0];
+		position.y = positions[1];
+		position.z = positions[2];
+		position.u = positions[3];
+		position.v = positions[4];
+		position.w = positions[5];
+
+		// Update cache with fresh values
+		{
+			std::lock_guard<std::mutex> lock(m_mutex);
+			m_axisPositions["X"] = position.x;
+			m_axisPositions["Y"] = position.y;
+			m_axisPositions["Z"] = position.z;
+			m_axisPositions["U"] = position.u;
+			m_axisPositions["V"] = position.v;
+			m_axisPositions["W"] = position.w;
+			m_lastPositionUpdate = std::chrono::steady_clock::now();
+		}
+
+		if (m_enableDebug) {
+			std::cout << "PIController: Position query successful - X:" << position.x
+				<< " Y:" << position.y << " Z:" << position.z
+				<< " U:" << position.u << " V:" << position.v << " W:" << position.w << std::endl;
+		}
+
+		return true;
+	}
+
+	// Method 2: Batch query failed, try individual axis queries (fallback)
+	std::cout << "PIController: Batch position query failed, trying individual queries" << std::endl;
+
+	std::vector<std::string> axes = { "X", "Y", "Z", "U", "V", "W" };
+	std::vector<double*> positionPtrs = { &position.x, &position.y, &position.z,
+																			 &position.u, &position.v, &position.w };
+
+	bool allSuccess = true;
+	for (size_t i = 0; i < axes.size(); ++i) {
+		if (!GetPosition(axes[i], *positionPtrs[i])) {
+			std::cout << "PIController: Failed to get position for axis " << axes[i] << std::endl;
+			allSuccess = false;
+			// Continue trying other axes rather than failing completely
+		}
+	}
+
+	if (!allSuccess) {
+		std::cout << "PIController: Some axis position queries failed" << std::endl;
+		return false;
+	}
+
+	if (m_enableDebug) {
+		std::cout << "PIController: Individual position queries successful" << std::endl;
+	}
+
+	return true;
+}
+
 bool PIController::StopAxis(const std::string& axis) {
 	if (!m_isConnected) {
 
@@ -568,6 +677,16 @@ bool PIController::StopAllAxes() {
 
 	return true;
 }
+
+bool PIController::StopMotion() {
+	if (StopAllAxes())
+	{
+		return true;
+	}
+
+	return false;
+}
+
 
 // IsMoving optimized to use less frequent direct API calls
 // Updated IsMoving method in PIController with better detection

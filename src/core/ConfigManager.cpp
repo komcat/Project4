@@ -234,3 +234,15 @@ void ConfigManager::LogWarning(const std::string& message) const {
     std::cout << "[ConfigManager WARNING] " + message << std::endl;
   }
 }
+
+// Get list of all loaded configuration files
+std::vector<std::string> ConfigManager::GetLoadedConfigs() const {
+  std::vector<std::string> configs;
+  configs.reserve(m_configCache.size());
+
+  for (const auto& [filename, _] : m_configCache) {
+    configs.push_back(filename);
+  }
+
+  return configs;
+}

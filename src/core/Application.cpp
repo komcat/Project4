@@ -2,16 +2,17 @@
 // ConfigManager is now a service, not a direct dependency
 
 #include "Application.h"
-#include "../utils/Logger.h"
-#include "../utils/Unicode.h"
+#include "Logger.h"
+#include "Unicode.h"
 #include "backends/imgui_impl_sdl2.h"
 #include "backends/imgui_impl_opengl3.h"
-#include "../core/ServiceLocator.h"  // Use ServiceLocator instead of UniversalServices
-#include "../devices/motions/PIControllerManagerStandardized.h"
-#include "../devices/motions/ACSControllerManagerStandardized.h"
-#include "../core/ConfigManager.h"     // For ConfigManager
-#include "../core/ConfigRegistry.h"
-#include "../utils/LoggerAdapter.h"
+#include "ServiceLocator.h"  // Use ServiceLocator instead of UniversalServices
+#include "PIControllerManagerStandardized.h"
+#include "ACSControllerManagerStandardized.h"
+#include "ConfigManager.h"     // For ConfigManager
+#include "MotionConfigManager.h" // For MotionConfigManager
+#include "ConfigRegistry.h"
+#include "LoggerAdapter.h"
 #include <GL/gl.h>
 #include <thread>
 
@@ -97,6 +98,13 @@ void Application::InitializeServices() {
     else {
       ConfigLogger::ConfigError("Motion configurations", "Failed to load some configs");
     }
+
+    // ========================================================================
+    // STEP 1.1: Create and Register MotionConfigManager as Service
+    // ========================================================================
+    auto& motionConfigManager = MotionConfigManager::Instance();
+		ServiceLocator::Get().RegisterMotionConfigManager(&motionConfigManager);
+		Logger::Success(L"✅ MotionConfigManager registered as service");
 
     // ========================================================================
     // STEP 2: Create Motion Managers (they get ConfigManager via ServiceLocator)

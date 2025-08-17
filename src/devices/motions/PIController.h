@@ -111,6 +111,10 @@ public:
 
   void StopCommunicationThread();
 
+  bool StopMotion();
+
+  bool GetCurrentPosition(PositionStruct& position);
+
 private:
   bool m_debugVerbose = false;
   bool enableDebug = false;

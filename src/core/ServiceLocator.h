@@ -1,10 +1,11 @@
 ﻿// ============================================================================
-// SERVICE LOCATOR - Zero Dependencies, All Services Included
+// SERVICE LOCATOR - Zero Dependencies, All Services + New Motion Architecture
 // ============================================================================
 
-// ServiceLocator.h - Complete version with all original services + ConfigManager
+// ServiceLocator.h - Updated version with MotionService and PathExecutor
 #pragma once
 #include <iostream>
+#include <memory>
 
 // Forward declarations - ZERO dependencies!
 class PIControllerManagerStandardized;
@@ -17,9 +18,14 @@ class Keithley2400Manager;
 class PneumaticManager;
 class MachineOperations;
 
+// NEW: Forward declarations for new motion architecture
+class MotionService;
+class MotionConfigManager;
+
 /**
  * ServiceLocator - Complete Zero Dependencies Service Registry
  *
+ * NEW: Now includes MotionService and PathExecutor for clean motion architecture
  * All services (including ConfigManager) are registered here
  * No direct dependencies between classes - everything goes through services
  * Includes all original services for backward compatibility
@@ -39,13 +45,24 @@ public:
   // SERVICE REGISTRATION (called once during startup)
   // ========================================================================
 
-  // New ConfigManager service (zero dependencies!)
+  // NEW: Modern Motion Architecture Services (consistent raw pointers)
+  void RegisterMotionService(MotionService* service) {
+    motionService = service;
+    if (service) std::cout << "✅ MotionService registered" << std::endl;
+  }
+
+  void RegisterMotionConfigManager(MotionConfigManager* service) {
+    motionConfigManager = service;
+    if (service) std::cout << "✅ MotionConfigManager registered" << std::endl;
+	}
+
+  // ConfigManager service (zero dependencies!)
   void RegisterConfigManager(ConfigManager* service) {
     configManager = service;
     if (service) std::cout << "✅ ConfigManager Service registered" << std::endl;
   }
 
-  // Updated motion managers (use standardized versions)
+  // Original motion managers (kept for backward compatibility)
   void RegisterPI(PIControllerManagerStandardized* service) {
     piManager = service;
     if (service) std::cout << "✅ PI Controller Service registered" << std::endl;
@@ -91,6 +108,22 @@ public:
   // SERVICE ACCESS (used everywhere, zero parameters needed!)
   // ========================================================================
 
+  // NEW: Modern Motion Architecture Access
+  MotionService* Motion() const {
+    if (!motionService) {
+      std::cout << "❌ MotionService not available" << std::endl;
+    }
+    return motionService;
+  }
+
+  MotionConfigManager* MotionConfig() const {
+    if (!motionConfigManager) {
+      std::cout << "❌ MotionConfigManager not available" << std::endl;
+    }
+    return motionConfigManager;
+	}
+
+
   // Core services with enhanced error checking
   ConfigManager* Config() const {
     if (!configManager) {
@@ -99,6 +132,7 @@ public:
     return configManager;
   }
 
+  // Original motion managers (for backward compatibility)
   PIControllerManagerStandardized* PI() const {
     if (!piManager) {
       std::cout << "❌ PI Controller Manager not available" << std::endl;
@@ -125,6 +159,12 @@ public:
   // AVAILABILITY CHECKS (for conditional logic)
   // ========================================================================
 
+  // NEW: Motion architecture availability
+  bool HasMotionService() const { return motionService != nullptr; }
+	bool HasMotionConfigManager() const { return motionConfigManager != nullptr; }
+
+
+  // Original availability checks
   bool HasConfig() const { return configManager != nullptr; }
   bool HasPI() const { return piManager != nullptr; }
   bool HasACS() const { return acsManager != nullptr; }
@@ -141,6 +181,9 @@ public:
 
   // Clear all services (for cleanup)
   void ClearAll() {
+    // Clear all services (ServiceLocator doesn't own them, so just nullify)
+    motionService = nullptr;
+    motionConfigManager = nullptr;
     configManager = nullptr;
     piManager = nullptr;
     acsManager = nullptr;
@@ -156,6 +199,8 @@ public:
   // Get service status summary
   int GetAvailableServiceCount() const {
     int count = 0;
+    if (HasMotionService()) count++;
+		if (HasMotionConfigManager()) count++;
     if (HasConfig()) count++;
     if (HasPI()) count++;
     if (HasACS()) count++;
@@ -171,9 +216,15 @@ public:
   // Print status for debugging
   void PrintStatus() const {
     std::cout << "=== Service Status ===" << std::endl;
+    std::cout << "--- Modern Motion Architecture ---" << std::endl;
+    std::cout << "MotionService: " << (HasMotionService() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+		std::cout << "MotionConfigManager: " << (HasMotionConfigManager() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "--- Core Services ---" << std::endl;
     std::cout << "ConfigManager: " << (HasConfig() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "--- Legacy Motion (Backward Compatibility) ---" << std::endl;
     std::cout << "PI Manager: " << (HasPI() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
     std::cout << "ACS Manager: " << (HasACS() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
+    std::cout << "--- Other Services ---" << std::endl;
     std::cout << "Camera: " << (HasCamera() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
     std::cout << "IO: " << (HasIO() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
     std::cout << "CLD101x: " << (HasCLD101x() ? "REGISTERED" : "NOT REGISTERED") << std::endl;
@@ -187,10 +238,13 @@ public:
   // BATCH OPERATIONS (convenience methods) - DECLARATIONS ONLY
   // ========================================================================
 
-  // Initialize all available motion controllers
+  // NEW: Modern motion system initialization
+  bool InitializeModernMotion();
+
+  // Initialize all available motion controllers (legacy)
   bool InitializeAllMotion();
 
-  // Connect all available motion controllers  
+  // Connect all available motion controllers (legacy)
   bool ConnectAllMotion();
 
   // Disconnect all motion controllers
@@ -201,6 +255,8 @@ private:
   ServiceLocator() = default;
 
   // All services as static pointers (not owned by ServiceLocator)
+  static MotionService* motionService;
+	static MotionConfigManager* motionConfigManager;
   static ConfigManager* configManager;
   static PIControllerManagerStandardized* piManager;
   static ACSControllerManagerStandardized* acsManager;
@@ -213,19 +269,24 @@ private:
 };
 
 // ========================================================================
-// CONVENIENCE MACROS (optional, for cleaner syntax)
+// CONVENIENCE MACROS (updated with new services)
 // ========================================================================
 
 #define Services ServiceLocator::Get()
 
+// NEW: Motion convenience macros
+#define MOTION_SERVICE() Services.Motion()
+#define PATH_EXECUTOR() Services.Paths()
+
 // Example usage:
+// auto motion = Services.Motion();
+// auto paths = Services.Paths();
 // auto config = Services.Config();
 // auto pi = Services.PI();
 // auto camera = Services.Camera();
-// if (Services.HasACS()) { auto acs = Services.ACS(); }
 
 // ========================================================================
-// SAFER SERVICE ACCESS WITH AUTOMATIC NULL CHECKS
+// SAFER SERVICE ACCESS WITH AUTOMATIC NULL CHECKS (Updated)
 // ========================================================================
 
 // Template helper for safe service access
@@ -255,8 +316,16 @@ private:
   T* service_;
 };
 
-// Safe accessors for all services
+// Safe accessors for all services (updated with new services)
 namespace SafeServices {
+  // NEW: Modern motion services
+  inline SafeService<MotionService> Motion() {
+    return SafeService<MotionService>(Services.Motion());
+  }
+
+
+
+  // Original safe accessors
   inline SafeService<ConfigManager> Config() {
     return SafeService<ConfigManager>(Services.Config());
   }
@@ -295,28 +364,34 @@ namespace SafeServices {
 }
 
 // ========================================================================
-// USAGE EXAMPLES
+// USAGE EXAMPLES (Updated)
 // ========================================================================
 
 /*
-// Method 1: Simple access with manual null check
-auto config = Services.Config();
-if (config) {
-    config->LoadMotionConfigs();
+// NEW: Modern motion architecture usage
+auto motion = Services.Motion();
+if (motion) {
+    motion->MoveToNamedPosition("hex-left", "home");
 }
 
-// Method 2: Safe service with automatic checking
-auto camera = SafeServices::Camera();
-if (camera) {
-    camera->StartCapture();
+auto paths = Services.Paths();
+if (paths) {
+    paths->ExecutePath("Process_Flow", "start", "end");
 }
 
-// Method 3: Execute if available
-SafeServices::Config().IfAvailable([](auto* config) {
-    config->SetConfigDirectory("config");
+// Safe service with automatic checking
+auto motionSafe = SafeServices::Motion();
+if (motionSafe) {
+    motionSafe->EmergencyStopAll();
+}
+
+// Execute if available
+SafeServices::Paths().IfAvailable([](auto* paths) {
+    paths->MoveToNode("Process_Flow", "home");
 });
 
-// Method 4: All original services still work exactly the same
+// All original services still work exactly the same
+auto config = Services.Config();
 auto io = Services.IO();
 auto smu = Services.SMU();
 auto pneumatic = Services.Pneumatic();

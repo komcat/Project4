@@ -78,6 +78,11 @@ public:
   bool GetDeviceIdentification(std::string& manufacturerInfo);
 	int GetControllerId() const { return (int)m_controllerId; }
 
+
+	bool StopMotion();
+
+  bool GetCurrentPosition(PositionStruct& position);
+
 private:
   // Communication thread methods
   void StartCommunicationThread();

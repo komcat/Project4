@@ -464,6 +464,19 @@ bool ACSController::StopAllAxes() {
   return true;
 }
 
+
+bool ACSController::StopMotion() {
+  if (StopAllAxes())
+  {
+    return true;
+  }
+  
+	return false;
+
+  
+}
+
+
 bool ACSController::IsMoving(const std::string& axis) {
   if (!m_isConnected) {
     return false;
@@ -529,6 +542,107 @@ bool ACSController::GetPosition(const std::string& axis, double& position) {
 
   return true;
 }
+
+// ACSController.cpp - Add this method implementation
+
+// Get current position for all axes into PositionStruct
+bool ACSController::GetCurrentPosition(PositionStruct& position) {
+  if (!m_isConnected) {
+    std::cout << "ACSController: Cannot get current position - not connected" << std::endl;
+    return false;
+  }
+
+  // Initialize position struct with zeros
+  position = PositionStruct();
+
+  // Try to get positions using cached values first (most efficient)
+  {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    // Check if we have recent cached positions for available axes
+    bool allCached = true;
+    for (const auto& axis : m_availableAxes) {
+      if (m_axisPositions.find(axis) == m_axisPositions.end()) {
+        allCached = false;
+        break;
+      }
+    }
+
+    if (allCached) {
+      // Use cached values (fastest path) 
+      // Only fill axes that are available on this ACS controller
+      for (const auto& axis : m_availableAxes) {
+        if (axis == "X") position.x = m_axisPositions.at("X");
+        else if (axis == "Y") position.y = m_axisPositions.at("Y");
+        else if (axis == "Z") position.z = m_axisPositions.at("Z");
+        // ACS controllers typically don't have U, V, W axes - leave as 0.0
+      }
+
+      if (m_enableDebug) {
+        std::cout << "ACSController: Using cached position values" << std::endl;
+      }
+      return true;
+    }
+  }
+
+  // If cached values are not available, query hardware directly
+  if (m_enableDebug) {
+    std::cout << "ACSController: Querying hardware for current position" << std::endl;
+  }
+
+  // Method 1: Try batch query using GetPositions() (leverages existing optimized method)
+  std::map<std::string, double> positions;
+  if (GetPositions(positions)) {
+    // Success - fill PositionStruct from map
+    // Only set axes that are available, leave others as 0.0
+    if (positions.find("X") != positions.end()) position.x = positions["X"];
+    if (positions.find("Y") != positions.end()) position.y = positions["Y"];
+    if (positions.find("Z") != positions.end()) position.z = positions["Z"];
+    // U, V, W remain 0.0 for ACS controllers
+
+    if (m_enableDebug) {
+      std::cout << "ACSController: Batch position query successful - X:" << position.x
+        << " Y:" << position.y << " Z:" << position.z << std::endl;
+    }
+
+    return true;
+  }
+
+  // Method 2: Batch query failed, try individual axis queries (fallback)
+  std::cout << "ACSController: Batch position query failed, trying individual queries" << std::endl;
+
+  bool allSuccess = true;
+
+  // Query each available axis individually
+  for (const auto& axis : m_availableAxes) {
+    double axisPosition = 0.0;
+
+    if (GetPosition(axis, axisPosition)) {
+      // Store in appropriate PositionStruct member
+      if (axis == "X") position.x = axisPosition;
+      else if (axis == "Y") position.y = axisPosition;
+      else if (axis == "Z") position.z = axisPosition;
+      // Skip any other axes that might be configured
+    }
+    else {
+      std::cout << "ACSController: Failed to get position for axis " << axis << std::endl;
+      allSuccess = false;
+      // Continue trying other axes rather than failing completely
+    }
+  }
+
+  if (!allSuccess) {
+    std::cout << "ACSController: Some axis position queries failed" << std::endl;
+    return false;
+  }
+
+  if (m_enableDebug) {
+    std::cout << "ACSController: Individual position queries successful" << std::endl;
+  }
+
+  return true;
+}
+
 
 bool ACSController::GetPositions(std::map<std::string, double>& positions) {
   if (!m_isConnected || m_availableAxes.empty()) {

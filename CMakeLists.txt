@@ -201,6 +201,12 @@ endif()
 # ========================================
 set(COMMON_INCLUDE_DIRS
     "${CMAKE_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/src/core"
+    "${CMAKE_SOURCE_DIR}/src/ui"
+    "${CMAKE_SOURCE_DIR}/src/utils"
+    "${CMAKE_SOURCE_DIR}/src/devices"
+    "${CMAKE_SOURCE_DIR}/src/devices/motions"
+    "${CMAKE_SOURCE_DIR}/src/ui/services"
     "${CMAKE_SOURCE_DIR}/include"
     ${NLOHMANN_JSON_INCLUDE_DIR}
     ${PI_GCS2_INCLUDE_DIR}

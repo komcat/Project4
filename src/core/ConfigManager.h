@@ -52,6 +52,9 @@ public:
   void SetConfigDirectory(const std::string& path);
   std::string GetConfigDirectory() const;
 
+  // Add this method declaration in the public section
+  std::vector<std::string> GetLoadedConfigs() const;
+
 private:
   ConfigManager() = default;
   ~ConfigManager() = default;

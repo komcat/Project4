@@ -35,6 +35,8 @@
 #include "run/RunProductService.h"
 #include "run/ProcessSetupService.h"
 
+
+
 class ServiceInitializer {
 public:
   static void RegisterAllServices() {
@@ -72,9 +74,12 @@ public:
 
     Logger::Success(L"✅ All UI services registered successfully (16 services, 6 categories)");
 
+ 
+
     // Optional: Log service count by category
     LogServiceSummary();
   }
+
 
 private:
   static void LogServiceSummary() {
